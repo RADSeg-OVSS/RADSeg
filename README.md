@@ -7,7 +7,7 @@ This repository contains the official implementation of **RADSeg**, a framework 
 
 ## Introduction
 
-![RADSeg Architecture](assets/radseg_architecture.png)
+![RADSeg Architecture](assets/RADSeg-Diagram.png)
 *Figure 1: Overview of the RADSeg architecture.*
 
 Existing OVSS approaches often rely on limited data or heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, efficient approach by adapting **RADIO** for zero-shot segmentation.
@@ -44,14 +44,14 @@ Arguments:
 - `--lang_model`: Language model to use (e.g., `siglip2`).
 - `--sam_refine`: Enable SAM-based mask refinement (optional).
 
-### Batch Evaluation across Resolutions
+### Evaluation across Different Resolutions and Datasets
 
 To run evaluation across multiple resolutions and configs as defined in `eval_all_multi_res.py`:
 
 ```bash
 python eval_all_multi_res.py
 ```
-This script iterates over defined configurations (Standard, HightRes) and runs the evaluation automatically.
+This script iterates over defined configurations (Low Resolution, Mid Resolution and High Resolution) and runs the evaluation automatically.
 
 ## Citation
 
