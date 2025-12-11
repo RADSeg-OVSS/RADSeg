@@ -10,7 +10,7 @@ This repository contains the official implementation of **RADSeg**, a framework 
 ![RADSeg Architecture](assets/RADSeg-Diagram.png)
 *Figure 1: Overview of the RADSeg architecture.*
 
-Existing OVSS approaches often rely on limited data or heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, efficient approach by adapting **RADIO** for zero-shot segmentation.
+Existing SOTA OVSS approaches often rely on heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, parameter and compute efficient approach by adapting **RADIO** for zero-shot open vocabulary segmentation.
 
 **Key Features:**
 - **Parameter Efficiency**: 2.5x fewer parameters than comparable state-of-the-art methods.
