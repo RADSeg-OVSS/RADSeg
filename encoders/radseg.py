@@ -1,0 +1,643 @@
+"""Includes the RADSeg  Encoder based on RADIO model.
+
+The module only relies on the base.py and prompt_templates.py files in
+image_encoders. Encoder can be copied with those files to your own project.
+
+Typical Usage:
+
+  rgb_img = torchvision.io.read_image(rgb_path)
+  rgb_img = rgb_img.float() / 255
+  rgb_img = torch.nn.functional.interpolate(
+    rgb_img.unsqueeze(0),size=(512, 512))
+
+  labels = ["car", "person"]
+
+  enc = RADSegEncoder(model_version="radio_v3-b", lang_model="siglip2")
+  
+  feat_map = enc.encode_image_to_feat_map(rgb_img)
+  lang_aligned_feat_map = enc.align_spatial_features_with_language(feat_map)
+
+  text_features = enc.encode_labels(labels)
+
+  from rayfronts.utils import compute_cos_sim
+  r = compute_cos_sim(text_features, lang_aligned_feat_map, softmax=True)
+"""
+
+from typing_extensions import override, List, Tuple
+
+import torch
+import numpy as np
+
+from encoders.base import LangSpatialGlobalImageEncoder
+from segment_anything import sam_model_registry, SamPredictor
+from sam_utils import sam_refinement
+
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+from timm.layers import use_fused_attn
+import math
+
+def get_cls_idx(path):
+    with open(path, 'r') as f:
+        name_sets = f.readlines()
+    num_cls = len(name_sets)
+
+    class_names, class_indices = list(), list()
+    for idx in range(num_cls):
+        names_i = name_sets[idx].split(', ')
+        class_names += names_i
+        class_indices += [idx for _ in range(len(names_i))]
+    class_names = [item.replace('\n', '') for item in class_names]
+    return class_names, class_indices
+
+def compute_cos_sim(vec1: torch.FloatTensor,
+                    vec2: torch.FloatTensor,
+                    softmax: bool = False) -> torch.FloatTensor:
+    """Compute cosine similarity between two batches of D dim vectors.
+
+    Args:
+    vec1: NxC float tensor representing batch of vectors
+    vec2: MxC float tensor representing batch of vectors
+    softmax: If False, cosine similarity is returned. If True, softmaxed
+        probability is returned across the N dimension.
+    Returns:
+    result: MxN float tensor representing similarity/prob. where result[0,1]
+        represents the similarity of vec1[0] with vec2[1]
+    """
+    N, C1 = vec1.shape
+    M, C2 = vec2.shape
+    if C1 != C2:
+        raise ValueError(f"vec1 feature dimension '{C1}' does not match vec2"
+                        f"feature dimension '{C2}'")
+    C = C1
+
+    vec1 = vec1 / vec1.norm(dim = -1, keepdim = True)
+    vec1 = vec1.reshape(1, N, 1, C)
+
+    vec2 = vec2 / vec2.norm(dim=-1, keepdim = True)
+    vec2 = vec2.reshape(M, 1, C, 1)
+
+    sim = (vec1 @ vec2).reshape(M, N)
+    if softmax:
+        return torch.softmax(100 * sim, dim = -1)
+    else:
+        return sim
+
+
+class SimilarityAttn(nn.Module):
+  """Encompases the NACLIP attention mechanism."""
+
+  def __init__(
+    self,
+    orig_attn,
+    device,
+    chosen_cls_id: int,
+    dim: int,
+    qk_norm: bool = False,
+    num_prefix_tokens: int = 8,
+    sim_scale: int = 10
+  ) -> None:
+    super().__init__()
+    num_heads = orig_attn.num_heads
+    assert dim % num_heads == 0, "dim should be divisible by num_heads"
+    self.num_heads = num_heads
+    self.head_dim = dim // num_heads
+    self.scale = self.head_dim ** -0.5
+    self.fused_attn = use_fused_attn()
+    self.chosen_cls_id = chosen_cls_id
+
+    self.qkv = orig_attn.qkv
+    self.q_norm = orig_attn.q_norm if qk_norm else nn.Identity()
+    self.k_norm = orig_attn.k_norm if qk_norm else nn.Identity()
+    self.attn_drop = orig_attn.attn_drop
+    self.proj = orig_attn.proj
+    self.proj_drop = orig_attn.proj_drop
+    self.device = device
+    self.num_prefix_tokens = num_prefix_tokens
+    self.sim_scale = sim_scale
+
+  def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    B, N, C = x.shape
+    x_out = self.custom_attn(x.permute(1, 0, 2))
+    x_out = x_out.permute(1, 0, 2)
+    return x_out
+
+  
+  def custom_attn(self, x):
+    num_heads = self.num_heads
+    num_tokens, bsz, embed_dim = x.size()
+    head_dim = embed_dim // num_heads
+    scale = head_dim ** -0.5
+    q, k, v = self.qkv(x).chunk(3, dim=-1)
+    q, k = self.q_norm(q), self.k_norm(k)
+
+    q = q.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
+    k = k.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
+    v = v.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
+    # kk.T vs kq.T has the most impact
+    attn_weights = torch.bmm(q, k.transpose(1, 2)) * scale
+    attn_weights = F.softmax(attn_weights, dim=-1)
+    attn_output = torch.bmm(attn_weights, v)
+    attn_output = attn_output.transpose(0, 1).contiguous().view(
+      -1, bsz, embed_dim)
+    attn_output = self.proj(attn_output)
+    attn_output = self.proj_drop(attn_output)
+
+    # Similarity Attention 
+    attn_output = attn_output.view(-1, bsz * num_heads, head_dim).transpose(0, 1)
+    sim_tokens =  F.normalize(attn_output,dim = -1)
+    sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))*self.sim_scale
+    sim_matrix[sim_matrix < 0] = -torch.inf
+    sim_matrix = F.softmax(sim_matrix,dim=-1)
+    attn_output = torch.bmm(sim_matrix, v)    
+    attn_output = attn_output.transpose(0, 1).contiguous().view(
+      -1, bsz, embed_dim)
+    attn_output = self.proj(attn_output)
+    attn_output = self.proj_drop(attn_output)
+
+    # attn_output = torch.bmm(sim_matrix,attn_output).transpose(0, 1).contiguous().view(
+    #   -1, bsz, embed_dim)
+    
+    return attn_output
+
+class RADSegEncoder(LangSpatialGlobalImageEncoder):
+  """The RayFronts Encoder based on NACLIP + RADIO models.
+
+  The model modifies the attention of the last layer of RADIO following the
+  example of NACLIP improving spatial structure. And uses the Summary CLS 
+  projection to project the patch-wise tokens to SIGLIP or CLIP language aligned
+  feature spaces. The model computes na-radio spatial or global features by
+  default and exposes functions to project those features to Siglip, or CLIP
+  feature spaces.
+  """
+
+  def __init__(self, device: str =None,
+               model_version: str = "radio_v3-b",
+               lang_model: str ="siglip2",
+               return_radio_features: bool = True,
+               compile: bool = True,
+               amp: bool = False,
+               sim_scale: int = 10,
+               name_path: str = "",
+               prob_thd: float = 0.0,
+               prompt_denoising_thresh: float = 0.5,
+               slide_stride: int = 224,
+               slide_crop: int = 336,
+               agg_beta: float = 1.0,
+               agg_gamma: float = 10.0,
+               sam_ckpt= '/ocean/projects/cis220039p/mdt2/djariwala/ckpt/sam_vit_h_4b8939.pth',
+               coarse_thresh=0.10,
+               minimal_area=225,
+               sam_mask_coff=0.005, 
+               sam_target_size = 1024,
+               sam_model_type='vit_h',
+               sam_refinement = False,
+               **kwargs):
+    """
+
+    Args:
+      device: "cpu" or "cuda", set to None to use CUDA if available.
+      model_version: Choose from "radio_v3-x" where x can be b,l, or g.
+        More models can be found on https://github.com/NVlabs/RADIO/
+      lang_model: choose from ["siglip2", "clip"]
+      input_resolution: Tuple of ints (height, width) of the input images.
+        Needed to initialize the guassian attention window.
+      gauss_std: Standard deviation of the gaussian kernel.
+      return_radio_features: Whether to return radio features which are not
+        language aligned or whether to project them to the language aligned
+        space directly. If True, then the user can always later use the
+        functions `align_global_features_with_language` or 
+        `align_spatial_features_with_language` to project the radio features
+        to be language aligned.
+      compile: Whether to compile the model or not. Compiling may be faster but may increase memory usage.
+      amp: Whether to use automatic mixed percision or not.
+    """
+
+    super().__init__(device)
+
+    self.compile = compile
+    self.amp = amp
+    self.model_version = model_version
+    self.return_radio_features = return_radio_features
+    adaptor_names = [lang_model, "sam"]
+    self.model = torch.hub.load("NVlabs/RADIO", "radio_model",
+                                version=model_version, progress=True,
+                                skip_validation=True,
+                                adaptor_names=adaptor_names)
+    self.model.eval()
+    self.model = self.model.to(self.device)
+    self.model.make_preprocessor_external()
+    # Steal adaptors from RADIO so it does not auto compute adaptor output.
+    # We want to control when that happens.
+    self.lang_adaptor = self.model.adaptors[lang_model]
+    self.sam_adaptor = self.model.adaptors["sam"]
+    self.model.adaptors = None
+    last_block = self.model.model.blocks[-1]
+    last_block.attn = SimilarityAttn(
+      last_block.attn,
+      dim=self.model.model.embed_dim,
+      chosen_cls_id=self.lang_adaptor.head_idx,
+      device=self.device,
+      num_prefix_tokens=self.model.num_summary_tokens,
+      sim_scale=sim_scale)
+
+    self.times = list()
+    if self.compile:
+      self.model.compile(fullgraph=True, options={"triton.cudagraphs":True})
+      self.lang_adaptor.compile(fullgraph=True, options={"triton.cudagraphs":True})
+
+    query_words, self.query_idx = get_cls_idx(name_path)
+    self.num_queries = len(query_words)
+    self.query_idx = torch.Tensor(self.query_idx).to(torch.int64).to(device)
+    self.query_features = self.encode_labels(query_words)
+    self.dtype = self.query_features.dtype
+    self.prob_thd = prob_thd
+    self.align_corners = False
+    self.prompt_denoising_thresh = prompt_denoising_thresh
+    self.slide_stride = slide_stride
+    self.slide_crop = slide_crop
+    self.device = device
+    self.agg_beta = agg_beta
+    self.agg_gamma = agg_gamma
+
+    self.sam_iou_thresh = kwargs.get('sam_iou_thresh', 0.9)
+    self.sam = sam_model_registry[sam_model_type](checkpoint=sam_ckpt).to(device=device).eval()
+    self.sam_predictor = SamPredictor(self.sam)
+    self.sam.prompt_encoder = self.sam.prompt_encoder.float()
+    self.sam.mask_decoder = self.sam.mask_decoder.float()
+    self.coarse_thresh = coarse_thresh
+    self.minimal_area = minimal_area
+    self.sam_mask_coff = sam_mask_coff
+    self.sam_target_size = sam_target_size
+
+    self.sam_refinement = sam_refinement
+
+  @property
+  def input_resolution(self):
+    return self.model.model.blocks[-1].attn.input_resolution
+
+  @input_resolution.setter
+  def input_resolution(self, value):
+    if hasattr(value, "__len__") and len(value) == 2:
+      if self.is_compatible_size(*value):
+        self.model.model.blocks[-1].attn.update_input_resolution(value)
+        if self.compile:
+          self.model.compile(fullgraph=True, options={"triton.cudagraphs":True})
+      else:
+        raise ValueError(f"Incompatible input resolution {value}")
+    else:
+      raise ValueError("Input resolution must be a tuple of two ints")
+
+  @override
+  def encode_labels(self, labels: List[str]) -> torch.FloatTensor:
+    prompts_per_label = self.insert_labels_into_templates(labels)
+    all_text_features = list()
+    for i in range(len(labels)):
+      text_features = self.encode_prompts(prompts_per_label[i])
+      text_features = text_features.mean(dim=0, keepdim=True)
+      all_text_features.append(text_features)
+
+    all_text_features = torch.cat(all_text_features, dim=0)
+    return all_text_features
+
+  @override
+  def encode_prompts(self, prompts: List[str]) -> torch.FloatTensor:
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      text = self.lang_adaptor.tokenizer(prompts).to(self.device)
+      text_features = self.lang_adaptor.encode_text(text)
+      text_features /= text_features.norm(dim=-1, keepdim=True)
+    return text_features
+
+  @override
+  def encode_image_to_vector(
+    self, rgb_image: torch.FloatTensor) -> torch.FloatTensor:
+
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.model(rgb_image)
+      C = out.summary.shape[-1] // 3
+      i = self.lang_adaptor.head_idx
+      out = out.summary[:, C*i: C*(i+1)]
+
+      if not self.return_radio_features:
+        out = self.lang_adaptor.head_mlp(out)
+
+    return out
+
+  @override
+  def encode_image_to_feat_map(
+    self, rgb_image: torch.FloatTensor) -> torch.FloatTensor:
+    B, C, H, W = rgb_image.shape
+    H_, W_ = H // self.model.patch_size, W // self.model.patch_size
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.model(rgb_image).features
+      if not self.return_radio_features:
+        out = self.lang_adaptor.head_mlp(out)
+    return out.permute(0, 2, 1).reshape(B, -1, H_, W_)
+
+  @override
+  def encode_image_to_feat_map_and_vector(self, rgb_image: torch.FloatTensor) \
+      -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+    B, C, H, W = rgb_image.shape
+    H_, W_ = H // self.model.patch_size, W // self.model.patch_size
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.model(rgb_image)
+
+      C = out.summary.shape[-1] // 3
+      i = self.lang_adaptor.head_idx
+      global_vector = out.summary[:, C*i: C*(i+1)]
+
+      feat_map = out.features
+
+      if not self.return_radio_features:
+        global_vector = self.lang_adaptor.head_mlp(global_vector)
+        feat_map = self.lang_adaptor.head_mlp(feat_map)
+
+    return feat_map, global_vector
+
+  @override
+  def align_global_features_with_language(self, features: torch.FloatTensor):
+    if self.lang_adaptor is None:
+      raise ValueError("Cannot align to language without a lang model")
+    if not self.return_radio_features:
+      return features
+    B,C = features.shape
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      return self.lang_adaptor.head_mlp(features)
+
+  @override
+  def align_spatial_features_with_language(self, features: torch.FloatTensor):
+    if self.lang_adaptor is None:
+      raise ValueError("Cannot align to language without a lang model")
+    if not self.return_radio_features:
+      return features
+    B,C,H,W = features.shape
+    features = features.permute(0, 2, 3, 1).reshape(B, -1, C)
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.lang_adaptor.head_mlp(features)
+    return out.permute(0, 2, 1).reshape(B, -1, H, W)
+
+
+  def get_sam_spatial_features(self, features: torch.FloatTensor):
+    if self.sam_adaptor is None:
+      raise ValueError("Cannot align to sam without a sam model")
+  
+    B,C,H,W = features.shape
+    features = features.permute(0, 2, 3, 1).reshape(B, -1, C)
+
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.sam_adaptor.feat_mlp(features)
+
+    return out.permute(0, 2, 1).reshape(B, -1, H, W)
+
+  def get_sam_summary_features(self, features: torch.FloatTensor):
+    if self.sam_adaptor is None:
+      raise ValueError("Cannot align to sam without a sam model")
+
+    B,C,H,W = features.shape
+    features = features.permute(0, 2, 3, 1).reshape(B, -1, C)
+
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.sam_adaptor.head_mlp(features)
+      
+    return out.permute(0, 2, 1).reshape(B, -1, H, W)
+  
+  @override
+  def is_compatible_size(self, h: int, w: int):
+    hh, ww = self.get_nearest_size(h, w)
+    return hh == h and ww == w
+
+  @override
+  def get_nearest_size(self, h, w):
+    return self.model.get_nearest_supported_resolution(h, w)
+
+  def interpolate_to_sam_dims(self,feature_map):
+
+    h,w = feature_map.shape[2:]
+  
+    feat_h = feature_map.shape[2]
+    feat_w = feature_map.shape[3]
+    feature_map = F.interpolate(feature_map, size=(feat_h, feat_w), mode='bilinear', align_corners=False, antialias=True)
+    feature_map = F.pad(feature_map, (0, 64 - feat_w, 0, 64 - feat_h))
+    return feature_map
+
+  def preprocess_sam(self,image: torch.Tensor, target_size: int = 1024) -> torch.Tensor:
+    """
+    Preprocess an image tensor for SAM.
+    
+    Args:
+        image (torch.Tensor): Tensor of shape (C, H, W), values in [0, 255] or [0, 1].
+        target_size (int): Size to pad/resize to (default=1024).
+    
+    Returns:
+        torch.Tensor: Preprocessed tensor of shape (1, 3, target_size, target_size).
+    """
+    if image.dim() != 3 or image.shape[0] != 3:
+      raise ValueError("Input must have shape (3, H, W)")
+
+    C, H, W = image.shape
+
+    if H >= W:
+      new_h = 1024
+      new_w = int(W * 64 /H)*16
+    else:
+      new_w = 1024
+      new_h = int(H * 64 / W)*16
+
+    image = image.unsqueeze(0)  # add batch dim
+    image = F.interpolate(image, size=(new_h, new_w), mode="bilinear", align_corners=False)
+
+    return image, new_h, new_w
+
+  def aggregate_features(self,feat_map):
+
+    b,tokens,h,w = feat_map.shape
+    feat_map = feat_map.flatten(2,3).transpose(1,2)
+    sim_tokens = F.normalize(feat_map,dim = -1)
+    sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))
+    sim_matrix = (sim_matrix - torch.mean(sim_matrix) * self.agg_beta) * self.agg_gamma
+    sim_matrix[sim_matrix < 0] = -torch.inf
+    sim_matrix = F.softmax(sim_matrix,dim=-1)
+    attn_output = torch.bmm(sim_matrix, feat_map)
+    attn_output = attn_output.transpose(1,2).view(b,tokens,h,w)    
+
+    return attn_output
+
+  def get_seg_logits(self,feat_map):
+
+    image_features = self.align_spatial_features_with_language(feat_map)
+    feat_map = image_features.permute(0, 2, 3, 1)
+
+    B,H,W,C = feat_map.shape
+    feat_map = feat_map.reshape(-1, C)
+
+    cos_sim = compute_cos_sim(
+      self.query_features, feat_map,
+      softmax=True)
+
+    N = len(self.query_features)
+
+    cos_sim = cos_sim.reshape(B,H,W,N)
+    cos_sim = cos_sim.permute(0,3,1,2)
+    
+    return cos_sim
+
+  def preprocess_image(self, image, stride=16, slide_crop=336):
+    longer_side = max(image.shape[2:])
+    h, w = image.shape[2:]
+    if h%stride == 0 and w%stride == 0:
+      return image
+    if longer_side % stride != 0:
+      dst_longer = (longer_side // stride + 1) * stride
+    else:
+      dst_longer = longer_side
+    new_h = int(h * dst_longer / longer_side)
+    new_w = int(w * dst_longer / longer_side)
+    if new_h % stride != 0: new_h = (new_h // stride + 1) * stride
+    if new_w % stride != 0: new_w = (new_w // stride + 1) * stride
+    new_h, new_w = max(new_h, slide_crop), max(new_w, slide_crop)
+    image = torch.nn.functional.interpolate(image, (new_h, new_w), mode='bilinear', align_corners=False)
+
+    return image
+
+  def get_windowed_imgs(self, img, patch_size=16):
+    stride, crop_size = self.slide_stride, self.slide_crop
+    if type(img) == list:
+      img = img[0].unsqueeze(0)
+    if type(stride) == int:
+      stride = (stride, stride)
+    if type(crop_size) == int:
+      crop_size = (crop_size, crop_size)
+
+    h_stride, w_stride = stride
+    h_crop, w_crop = crop_size
+    batch_size, _, h_img, w_img = img.shape
+    h_grids = max(h_img - h_crop + h_stride - 1, 0) // h_stride + 1
+    w_grids = max(w_img - w_crop + w_stride - 1, 0) // w_stride + 1
+    crop_imgs, patch_locs = [], []
+    for h_idx in range(h_grids):
+      for w_idx in range(w_grids):
+        y1 = h_idx * h_stride
+        x1 = w_idx * w_stride
+        y2 = min(y1 + h_crop, h_img)
+        x2 = min(x1 + w_crop, w_img)
+        y1 = max(y2 - h_crop, 0)
+        x1 = max(x2 - w_crop, 0)
+        crop_img = img[:, :, y1:y2, x1:x2]
+        assert y1 % patch_size == 0 and x1 % patch_size == 0
+        assert y2 % patch_size == 0 and x2 % patch_size == 0
+        patch_locs.append(torch.tensor([y1//patch_size, x1//patch_size, y2//patch_size, x2//patch_size]))
+        # pad image when (image_size % patch_size != 0)
+        crop_imgs.append(crop_img)
+
+    batched_imgs = torch.cat(crop_imgs, dim=0) # [n_patches, 3, h, w]
+    return batched_imgs, patch_locs, (h_grids,w_grids)
+
+  def get_features(self, img):
+
+    if type(img) == list:
+      img = img[0]
+
+    image_features = self.encode_image_to_feat_map(img)
+    return image_features
+
+  def get_features_slide(self, img, stride=224, crop_size=336):
+    """
+    Inference by sliding-window with overlap. If h_crop > h_img or w_crop > w_img,
+    the small patch will be used to decode without padding.
+    """
+
+    if type(img) == list:
+      img = img[0].unsqueeze(0)
+    if type(stride) == int:
+      stride = (stride, stride)
+    if type(crop_size) == int:
+      crop_size = (crop_size, crop_size)
+        
+    img = self.preprocess_image(img, stride[0], crop_size[0])
+    
+    batched_imgs, patch_locs, (h_grids,w_grids) = self.get_windowed_imgs(img, patch_size=16)
+    batch_size = img.shape[0]
+    _, _, h_img, w_img = img.shape
+    
+
+    image_feats = self.get_features(batched_imgs)
+    feat_dim = image_feats.shape[1]
+    dtype = image_feats.dtype
+    device = image_feats.device
+    h_feat = math.ceil(h_img / 16)
+    w_feat = math.ceil(w_img / 16)
+    feat_map = torch.zeros((batch_size, feat_dim, h_feat, w_feat),dtype = dtype, device=device)
+    count_mat = torch.zeros((batch_size, 1, h_feat, w_feat),dtype = dtype, device=device)
+    for h_idx in range(h_grids):
+      for w_idx in range(w_grids):
+        coord = patch_locs[h_idx*w_grids+w_idx]
+        img_feat = image_feats[h_idx*w_grids+w_idx]
+        feat_map[:, :,coord[0]:coord[2],coord[1]:coord[3]] += img_feat
+        count_mat[:, :,coord[0]:coord[2],coord[1]:coord[3]] += 1
+    feat_map = feat_map / count_mat  # 1, D, dst_h, dst_w
+
+    return feat_map
+
+  def get_seg_data(self,img, img_size = None):
+
+    # Currently only batch size of 1 is supported
+    assert img.shape[0] == 1  
+
+    if img_size is None:
+      img_size = img.shape[-2:]
+    
+    if self.slide_crop > 0:
+      feat_map = self.get_features_slide(img, stride=self.slide_stride, crop_size=self.slide_crop)
+    else:
+      feat_map = self.get_features(img)
+    
+    feat_map = self.aggregate_features(feat_map)
+    
+    seg_logits = self.get_seg_logits(feat_map)
+    seg_logits = nn.functional.interpolate(seg_logits, size=img_size, mode='bilinear', align_corners=self.align_corners)
+
+    seg_probs = seg_logits[0]
+    #seg_probs = torch.softmax(seg_logits[i] * self.logit_scale, dim=0)  # n_queries * w * h
+    num_cls, num_queries = max(self.query_idx) + 1, len(self.query_idx)
+
+    if num_cls != num_queries:
+      seg_probs = seg_probs.unsqueeze(0)
+      cls_index = nn.functional.one_hot(self.query_idx)
+      cls_index = cls_index.T.view(num_cls, num_queries, 1, 1)
+      seg_probs = (seg_probs * cls_index).max(1)[0]
+      
+    N,H,W = seg_probs.shape
+    num_cls = N
+
+    seg_probs = seg_probs.permute(1,2,0)
+    seg_probs = seg_probs.reshape(-1,N)
+    max_sim = torch.max(seg_probs, dim=0).values
+
+    low_conf_classes = torch.argwhere(max_sim < self.prompt_denoising_thresh)
+    seg_probs[:, low_conf_classes] = -torch.inf
+
+    seg_probs = seg_probs.permute(1,0).reshape(-1,H,W)
+    seg_pred = seg_probs.argmax(0, keepdim=True)
+    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prob_thd] = 0
+
+    if self.sam_refinement:
+
+      sam_image, new_h, new_w = self.preprocess_sam(img[0], target_size=self.sam_target_size)
+      image_features = self.encode_image_to_feat_map(sam_image)
+      sam_features = self.get_sam_spatial_features(image_features).float()
+      sam_features = self.interpolate_to_sam_dims(sam_features)
+      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)    
+      self.sam_predictor.features = sam_features
+      self.sam_predictor.is_image_set = True
+      self.sam_predictor.original_size = img_size
+      self.sam_predictor.input_size = (new_h, new_w)
+      
+      refined_masks,scores,refined_logits,prompt_boxes = sam_refinement(img_size, seg_pred, seg_probs, num_cls,
+                                                                                  self.sam_predictor, self.coarse_thresh, self.minimal_area,
+                                                                                  self.sam_mask_coff, self.sam_iou_thresh)
+      seg_pred = refined_masks
+      seg_probs = refined_logits
+
+    
+    return seg_pred, seg_probs
