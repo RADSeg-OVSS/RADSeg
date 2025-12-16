@@ -31,14 +31,13 @@ configs = {
 }
 
 model,lang_model =  ("c-radio_v3-b","siglip2")
-sim_scale = '10'
-agg_beta = "1.0"
-agg_gamma = "10.0"
-base_output_path = "results/radseg_segmentation"
+scra_scaling = '10'
+scga_scaling = "10.0"
+base_output_path = "results/radseg_plus_segmentation"
 sam_refine = "--sam_refine"
 
 for res, configs_list in configs.items():
      output_path = os.path.join(base_output_path, res)
      for config in configs_list:
           print(f"Running {config}")
-          os.system(f"bash ./dist_test.sh {config} {model} {lang_model} {sim_scale} {output_path} {agg_beta} {agg_gamma} {sam_refine}")
+          os.system(f"bash ./dist_test.sh {config} {model} {lang_model} {output_path} {scra_scaling} {scga_scaling} {sam_refine}")

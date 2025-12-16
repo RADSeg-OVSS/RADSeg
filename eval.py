@@ -34,10 +34,10 @@ def main():
         cfg['model']['lang_model'] = args.lang_model
 
     if len(args.scga_scaling) > 0:
-        cfg['model']['scga_scaling'] = int(args.scga_scaling)
+        cfg['model']['scga_scaling'] = float(args.scga_scaling)
 
     if len(args.scra_scaling) > 0:
-        cfg['model']['scra_scaling'] = int(args.scra_scaling)
+        cfg['model']['scra_scaling'] = float(args.scra_scaling)
 
     cfg.model.sam_refinement = args.sam_refine
 

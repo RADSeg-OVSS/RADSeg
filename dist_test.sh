@@ -1,9 +1,8 @@
 CONFIG=$1
 MODEL_VERSION=$2
 LANG_MODEL=$3
-SIM_SCALE=$4
-WORKDIR=$5
-AGG_BETA=$6
-AGG_GAMMA=$7
-SAM_REFINE=$8
-python eval.py --config $CONFIG --model_version $MODEL_VERSION --lang_model $LANG_MODEL --sim_scale $SIM_SCALE --work-dir $WORKDIR --agg_beta $AGG_BETA --agg_gamma $AGG_GAMMA $SAM_REFINE
+WORKDIR=$4
+SCRA_SCALING=$5
+SCGA_SCALING=$6
+SAM_REFINE=$7
+python eval.py --config $CONFIG --model_version $MODEL_VERSION --lang_model $LANG_MODEL --work-dir $WORKDIR --scga_scaling $SCGA_SCALING --scra_scaling $SCRA_SCALING $SAM_REFINE

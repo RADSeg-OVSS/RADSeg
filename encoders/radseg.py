@@ -176,7 +176,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                return_radio_features: bool = True,
                compile: bool = True,
                amp: bool = False,
-               scra_scaling: int = 10,
+               scra_scaling: float = 10.0,
                name_path: str = "",
                prob_thd: float = 0.0,
                prompt_denoising_thresh: float = 0.5,
