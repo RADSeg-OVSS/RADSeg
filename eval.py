@@ -9,14 +9,13 @@ import os
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluation with MMSeg')
-    parser.add_argument('--config', default='')
-    parser.add_argument('--work-dir', default='./work_logs/')
-    parser.add_argument('--show-dir', default='', help='directory to save visualization images')
-    parser.add_argument('--model_version', default='', help='radio model version')
-    parser.add_argument('--lang_model', default='', help='language model')
-    parser.add_argument('--scga_scaling', default='', help='scga scale')
-    parser.add_argument('--scra_scaling', default='', help='scra scale')
-    parser.add_argument('--sam_refine', action='store_true')
+    parser.add_argument('--config',type=str, default='configs_mmseg/mid_res_configs/cfg_voc20.py')
+    parser.add_argument('--work-dir',type=str, default='./work_logs/')
+    parser.add_argument('--model_version',type=str, default='c-radio_v3-b', help='radio model version')
+    parser.add_argument('--lang_model',type=str, default='siglip2', help='language model')
+    parser.add_argument('--scga_scaling',type=float, default=10.0, help='scga scale')
+    parser.add_argument('--scra_scaling',type=float, default=10.0, help='scra scale')
+    parser.add_argument('--sam_refine',type=bool, default=False,help='sam refinement')
 
     args = parser.parse_args()
     return args
@@ -27,17 +26,22 @@ def main():
     cfg = Config.fromfile(args.config)
     cfg.work_dir = args.work_dir
 
-    if len(args.model_version) > 0:
-        cfg['model']['model_version'] = args.model_version
+    # if len(args.model_version) > 0:
+    #     cfg['model']['model_version'] = args.model_version
 
-    if len(args.lang_model) > 0:
-        cfg['model']['lang_model'] = args.lang_model
+    # if len(args.lang_model) > 0:
+    #     cfg['model']['lang_model'] = args.lang_model
 
-    if len(args.scga_scaling) > 0:
-        cfg['model']['scga_scaling'] = float(args.scga_scaling)
+    # if len(args.scga_scaling) > 0:
+    #     cfg['model']['scga_scaling'] = float(args.scga_scaling)
 
-    if len(args.scra_scaling) > 0:
-        cfg['model']['scra_scaling'] = float(args.scra_scaling)
+    # if len(args.scra_scaling) > 0:
+    #     cfg['model']['scra_scaling'] = float(args.scra_scaling)
+
+    cfg.model.model_version = args.model_version
+    cfg.model.lang_model = args.lang_model
+    cfg.model.scga_scaling = args.scga_scaling
+    cfg.model.scra_scaling = args.scra_scaling
 
     cfg.model.sam_refinement = args.sam_refine
 
