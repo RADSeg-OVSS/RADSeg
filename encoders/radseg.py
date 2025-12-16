@@ -95,8 +95,7 @@ class SimilarityAttn(nn.Module):
     chosen_cls_id: int,
     dim: int,
     qk_norm: bool = False,
-    num_prefix_tokens: int = 8,
-    sim_scale: int = 10
+    scra_scaling: int = 10
   ) -> None:
     super().__init__()
     num_heads = orig_attn.num_heads
@@ -114,8 +113,7 @@ class SimilarityAttn(nn.Module):
     self.proj = orig_attn.proj
     self.proj_drop = orig_attn.proj_drop
     self.device = device
-    self.num_prefix_tokens = num_prefix_tokens
-    self.sim_scale = sim_scale
+    self.scra_scaling = scra_scaling
 
   def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
     B, N, C = x.shape
@@ -147,7 +145,7 @@ class SimilarityAttn(nn.Module):
     # Similarity Attention 
     attn_output = attn_output.view(-1, bsz * num_heads, head_dim).transpose(0, 1)
     sim_tokens =  F.normalize(attn_output,dim = -1)
-    sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))*self.sim_scale
+    sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))*self.scra_scaling
     sim_matrix[sim_matrix < 0] = -torch.inf
     sim_matrix = F.softmax(sim_matrix,dim=-1)
     attn_output = torch.bmm(sim_matrix, v)    
@@ -178,15 +176,14 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                return_radio_features: bool = True,
                compile: bool = True,
                amp: bool = False,
-               sim_scale: int = 10,
+               scra_scaling: int = 10,
                name_path: str = "",
                prob_thd: float = 0.0,
                prompt_denoising_thresh: float = 0.5,
                slide_stride: int = 224,
                slide_crop: int = 336,
-               agg_beta: float = 1.0,
-               agg_gamma: float = 10.0,
-               sam_ckpt= '/ocean/projects/cis220039p/mdt2/djariwala/ckpt/sam_vit_h_4b8939.pth',
+               scga_scaling: float = 10.0,
+               sam_ckpt= '/path/to/sam_h_ckpt',
                coarse_thresh=0.10,
                minimal_area=225,
                sam_mask_coff=0.005, 
@@ -239,8 +236,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       dim=self.model.model.embed_dim,
       chosen_cls_id=self.lang_adaptor.head_idx,
       device=self.device,
-      num_prefix_tokens=self.model.num_summary_tokens,
-      sim_scale=sim_scale)
+      scra_scaling=scra_scaling)
 
     self.times = list()
     if self.compile:
@@ -258,8 +254,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     self.slide_stride = slide_stride
     self.slide_crop = slide_crop
     self.device = device
-    self.agg_beta = agg_beta
-    self.agg_gamma = agg_gamma
+    self.scga_scaling = scga_scaling
 
     self.sam_iou_thresh = kwargs.get('sam_iou_thresh', 0.9)
     self.sam = sam_model_registry[sam_model_type](checkpoint=sam_ckpt).to(device=device).eval()
@@ -455,7 +450,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     feat_map = feat_map.flatten(2,3).transpose(1,2)
     sim_tokens = F.normalize(feat_map,dim = -1)
     sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))
-    sim_matrix = (sim_matrix - torch.mean(sim_matrix) * self.agg_beta) * self.agg_gamma
+    sim_matrix = (sim_matrix - torch.mean(sim_matrix)) * self.scga_scaling
     sim_matrix[sim_matrix < 0] = -torch.inf
     sim_matrix = F.softmax(sim_matrix,dim=-1)
     attn_output = torch.bmm(sim_matrix, feat_map)

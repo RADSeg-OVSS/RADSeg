@@ -7,8 +7,10 @@ model = dict(
     slide_crop=336,
     slide_stride=224,
     amp=False,
-    compile=False
+    compile=False,
+    sam_ckpt = '/ocean/projects/cis220039p/mdt2/djariwala/ckpt/sam_vit_h_4b8939.pth'
 )
+
 
 test_evaluator = dict(type='IoUMetric', iou_metrics=['mIoU'])
 

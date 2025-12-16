@@ -18,8 +18,8 @@ from encoders import RADSegEncoder
 @MODELS.register_module()
 class RADSegSegmentation(BaseSegmentor):
     def __init__(self, name_path, model_version = "radio_v3-b", lang_model = "siglip2", device=torch.device('cuda'),
-                prob_thd=0.0, prompt_denoising_thresh=0.5, slide_stride=112, slide_crop=224, compile=False, agg_beta=1.0, agg_gamma=10.0, 
-                sim_scale=10, amp = False,sam_ckpt= '/ocean/projects/cis220039p/mdt2/djariwala/ckpt/sam_vit_h_4b8939.pth',coarse_thresh=0.10,minimal_area=225,
+                prob_thd=0.0, prompt_denoising_thresh=0.5, slide_stride=112, slide_crop=224, compile=False, scga_scaling=10.0, 
+                scra_scaling=10, amp = False,sam_ckpt= '/path/to/sam_h_ckpt',coarse_thresh=0.10,minimal_area=225,
                 sam_mask_coff=0.005, sam_target_size = 1024,sam_model_type='vit_h', sam_refinement=False, **kwargs):
 
         data_preprocessor = SegDataPreProcessor(mean=[122.771, 116.746, 104.094], std=[68.501, 66.632, 70.323], rgb_to_bgr=True)
@@ -36,9 +36,8 @@ class RADSegSegmentation(BaseSegmentor):
             amp=amp,
             slide_crop=slide_crop,
             slide_stride=slide_stride,
-            sim_scale=sim_scale,
-            agg_beta=agg_beta,
-            agg_gamma=agg_gamma,
+            scga_scaling=scga_scaling,
+            scra_scaling=scra_scaling,
             sam_ckpt=sam_ckpt,
             coarse_thresh=coarse_thresh,
             minimal_area=minimal_area,
