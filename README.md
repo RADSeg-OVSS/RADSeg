@@ -31,18 +31,20 @@ python eval.py \
   --config configs_mmseg/YOUR_CONFIG.py \
   --model_version radio_v3-b \
   --lang_model siglip2 \
-  --sim_scale 10 \
-  --agg_beta 1.0 \
-  --agg_gamma 10.0 \
+  --scra_scaling 10 \
+  --scga_scaling 10.0 \
   --work-dir ./work_logs/ \
-  --sam_refine
+  --sam_refine True
 ```
 
 Arguments:
 - `--config`: Path to the mmseg config file.
 - `--model_version`: RADIO model version (e.g., `radio_v3-b`).
 - `--lang_model`: Language model to use (e.g., `siglip2`).
-- `--sam_refine`: Enable SAM-based mask refinement (optional).
+- `--scra_scaling`: Scaling factor for Self-Correlating Recursive Attention (SCRA).
+- `--scga_scaling`: Scaling factor for Semantic Consensus Global Aggregation (SCGA).
+- `--sam_refine`: Enable SAM-based mask refinement (optional, set to True).
+
 
 ### Evaluation across Different Resolutions and Datasets
 

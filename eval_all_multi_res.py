@@ -30,11 +30,11 @@ configs = {
      "high_res": configs_list_high_res,
 }
 
-model,lang_model =  ("c-radio_v3-b","siglip2")
+model,lang_model =  ("c-radio_v3-h","siglip2-g")
 scra_scaling = '10'
 scga_scaling = "10.0"
-base_output_path = "results/radseg_plus_segmentation"
-sam_refine = "--sam_refine"
+base_output_path = "results/radseg_plus_segmentation_huge"
+sam_refine = "True"
 
 for res, configs_list in configs.items():
      output_path = os.path.join(base_output_path, res)
