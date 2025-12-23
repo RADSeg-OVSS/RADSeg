@@ -92,4 +92,4 @@ If you find this work useful, please cite our paper:
 
 ## Acknowledgements
 
-This codebase is built upon [MMSegmentation](https://github.com/open-mmlab/mmsegmentation) and [Trident](https://github.com/YuHengsss/Trident). We thank the authors for their open-source contributions.
+This codebase is built upon [AM-RADIO](https://github.com/NVlabs/RADIO), [MMSegmentation](https://github.com/open-mmlab/mmsegmentation), [Trident](https://github.com/YuHengsss/Trident), and [RayFronts](https://github.com/RayFronts/RayFronts). We thank the authors for their open-source contributions.
