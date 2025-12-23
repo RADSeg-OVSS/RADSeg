@@ -42,7 +42,7 @@ Existing SOTA OVSS approaches often rely on heavy combinations of multiple model
    assert (mmcv_min_version <= mmcv_version <= mmcv_max_version)
    ```
 
-4. **Datasets Preparation:**
+4. **Dataset Preparation:**
    We use the dataset preparation scripts from [Trident](https://github.com/YuHengsss/Trident). Please follow the [MMSegmentation data preparation document](https://mmsegmentation.readthedocs.io/en/latest/dataset_prepare.html) to download the datasets. We provide a helper script `process_dataset.sh` (adapted from Trident) to automate the pre-processing for datasets like PASCAL Context, Cityscapes, and COCO-Stuff164k.
 
    To use it, update the paths in `process_dataset.sh` and run:
