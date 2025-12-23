@@ -26,18 +26,6 @@ def main():
     cfg = Config.fromfile(args.config)
     cfg.work_dir = args.work_dir
 
-    # if len(args.model_version) > 0:
-    #     cfg['model']['model_version'] = args.model_version
-
-    # if len(args.lang_model) > 0:
-    #     cfg['model']['lang_model'] = args.lang_model
-
-    # if len(args.scga_scaling) > 0:
-    #     cfg['model']['scga_scaling'] = float(args.scga_scaling)
-
-    # if len(args.scra_scaling) > 0:
-    #     cfg['model']['scra_scaling'] = float(args.scra_scaling)
-
     cfg.model.model_version = args.model_version
     cfg.model.lang_model = args.lang_model
     cfg.model.scga_scaling = args.scga_scaling
