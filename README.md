@@ -18,7 +18,29 @@ Existing SOTA OVSS approaches often rely on heavy combinations of multiple model
 - **Performance**: Significant mIoU improvements (6-30% on base ViT class) across benchmarks.
 - **Unified Backbone**: Uses RADIO as a single powerful backbone for both semantic and spatial understanding.
 
+## Setup
 
+1. Create a conda environment and install base dependencies:
+   ```bash
+   conda env create -f environment.yml
+   conda activate radseg
+   ```
+
+2. Install OpenMMLab dependencies:
+   ```bash
+   pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4/index.html
+   pip install mmsegmentation==1.2.2
+   ```
+
+3. **MMSegmentation Compatibility:** 
+   In `mmseg/__init__.py`, you may need to update the `mmcv` version check. Change:
+   ```python
+   assert (mmcv_min_version <= mmcv_version < mmcv_max_version)
+   ```
+   to:
+   ```python
+   assert (mmcv_min_version <= mmcv_version <= mmcv_max_version)
+   ```
 
 ## Usage
 

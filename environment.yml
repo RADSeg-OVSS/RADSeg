@@ -1,0 +1,33 @@
+name: radseg
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pytorch=2.4.0
+  - torchvision=0.19.0
+  - pytorch-cuda=12.1
+  - pip
+  - pip:
+      - mmengine==0.10.1
+      - timm==1.0.19
+      - segment-anything
+      - opencv-python-headless
+      - pillow
+      - numpy
+      - matplotlib
+      - ftfy
+      - regex
+      - pyyaml
+      - tqdm
+      - huggingface-hub
+      - transformers
+      - open-clip-torch
+      - scipy
+      - scikit-image
+      - addict
+      - yapf
+      - typing_extensions
+      - einops
