@@ -33,7 +33,7 @@ Existing SOTA OVSS approaches often rely on heavy combinations of multiple model
    ```
 
 3. **MMSegmentation Compatibility:** 
-   In `mmseg/__init__.py`, you may need to update the `mmcv` version check. Change:
+   In `{site-packages-path}/mmseg/__init__.py`, you may need to update the `mmcv` version check. Change:
    ```python
    assert (mmcv_min_version <= mmcv_version < mmcv_max_version)
    ```
@@ -53,7 +53,7 @@ python eval.py \
   --config configs_mmseg/YOUR_CONFIG.py \
   --model_version radio_v3-b \
   --lang_model siglip2 \
-  --scra_scaling 10 \
+  --scra_scaling 10.0 \
   --scga_scaling 10.0 \
   --work-dir ./work_logs/ \
   --sam_refine True
