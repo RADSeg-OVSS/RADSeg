@@ -1,11 +1,13 @@
 import argparse
 import os
+
+import torch
+
 from mmengine.config import Config
 from mmengine.runner import Runner
+# Next 2 imports needed for mmseg registration
 import custom_datasets
 import radseg_segmentor
-import torch
-import os 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluation with MMSeg')
@@ -13,9 +15,9 @@ def parse_args():
     parser.add_argument('--work-dir',type=str, default='./work_logs/')
     parser.add_argument('--model_version',type=str, default='c-radio_v3-b', help='radio model version')
     parser.add_argument('--lang_model',type=str, default='siglip2', help='language model')
-    parser.add_argument('--scga_scaling',type=float, default=10.0, help='scga scale')
-    parser.add_argument('--scra_scaling',type=float, default=10.0, help='scra scale')
-    parser.add_argument('--sam_refine',type=bool, default=False,help='sam refinement')
+    parser.add_argument('--scra_scaling',type=float, default=10.0, help='SCRA scale')
+    parser.add_argument('--scga_scaling',type=float, default=10.0, help='SCGA scale')
+    parser.add_argument('--sam_refine', type=bool, default=False, help='RADIO-SAM refinement')
 
     args = parser.parse_args()
     return args
@@ -39,8 +41,7 @@ def main():
 
     results.update({'Model Version': cfg.model.model_version,
                     'Dataset': cfg.dataset_type,
-                    'Sam Refinement': cfg.model.sam_refinement,
-                })
+                    'Sam Refinement': cfg.model.sam_refinement})
 
     with open(os.path.join(cfg.work_dir, 'results.txt'), 'a') as f:
         f.write(os.path.basename(args.config).split('.')[0] + '\n')

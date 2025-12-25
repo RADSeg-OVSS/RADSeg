@@ -3,8 +3,6 @@ import numpy as np
 from skimage import measure
 from torchvision.ops import masks_to_boxes
 import torch.nn.functional as F
-import cv2
-import time
 
 
 def split_connected_regions(segmentation: np.ndarray, seg_logits, split_last=False, minimal_area=0,
@@ -95,10 +93,6 @@ def sam_refinement(img_size, segmentations, seg_logits, num_classes, predictor, 
     else:
         segmentations_down = segmentations
         seg_logits_down = seg_logits
-
-    # if type(img) == str:
-    #     img = cv2.imread(img)
-    #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     if coarse_thresh > 0:
         segmentations_down[seg_logits_down.max(0, keepdim=True)[0] < coarse_thresh] = num_classes

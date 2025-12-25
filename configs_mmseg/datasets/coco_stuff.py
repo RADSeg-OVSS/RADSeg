@@ -2,7 +2,7 @@ _base_ = '../base_config.py'
 
 # dataset settings
 dataset_type = 'COCOStuffDataset'
-data_root = '/ocean/projects/cis220039p/mdt2/djariwala/semseg_datasets/coco_stuff164k'
+data_root = 'datasets/coco_stuff164k'
 
 test_dataloader = dict(
     batch_size=1,

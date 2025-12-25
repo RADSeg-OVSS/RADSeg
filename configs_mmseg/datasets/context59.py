@@ -2,7 +2,7 @@ _base_ = '../base_config.py'
 
 # dataset settings
 dataset_type = 'PascalContext59Dataset'
-data_root = '/ocean/projects/cis220039p/mdt2/djariwala/semseg_datasets/VOCdevkit/VOC2010'
+data_root = 'datasets/VOCdevkit/VOC2010'
 
 test_dataloader = dict(
     batch_size=1,

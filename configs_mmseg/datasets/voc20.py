@@ -2,7 +2,7 @@ _base_ = '../base_config.py'
 
 # dataset settings
 dataset_type = 'PascalVOC20Dataset'
-data_root = '/ocean/projects/cis220039p/mdt2/djariwala/semseg_datasets/VOCdevkit/VOC2012'
+data_root = '/mnt/d/Dataset/VOC2012/VOC2012_train_val'
 
 test_dataloader = dict(
     batch_size=1,

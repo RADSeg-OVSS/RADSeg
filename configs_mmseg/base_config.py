@@ -1,16 +1,15 @@
 # base configurations
 model = dict(
     type='RADSegSegmentation',
-    model_version = "radio_v3-b",
+    model_version = "c-radio_v3-b",
     lang_model = "siglip2",
     prompt_denoising_thresh=0.5,
     slide_crop=336,
     slide_stride=224,
     amp=False,
     compile=False,
-    sam_ckpt = '/ocean/projects/cis220039p/mdt2/djariwala/ckpt/sam_vit_h_4b8939.pth'
+    sam_ckpt = 'sam_vit_h_4b8939.pth'
 )
-
 
 test_evaluator = dict(type='IoUMetric', iou_metrics=['mIoU'])
 
@@ -33,7 +32,6 @@ test_cfg = dict(type='TestLoop')
 default_hooks = dict(
     timer=dict(type='IterTimerHook'),
     logger=dict(type='LoggerHook', interval=50, log_metric_by_epoch=False),
-    param_scheduler=dict(type='ParamSchedulerHook'),
-    checkpoint=dict(type='CheckpointHook', by_epoch=False, interval=2000),
-    sampler_seed=dict(type='DistSamplerSeedHook'),
-    visualization=dict(type='SegVisualizationHook', interval=1))
+    visualization=dict(type='SegVisualizationHook',
+                       draw=False, # Set to True to visualize
+                       interval=1))

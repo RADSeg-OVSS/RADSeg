@@ -2,7 +2,7 @@ _base_ = '../base_config.py'
 
 # dataset settings
 dataset_type = 'CityscapesDataset'
-data_root = '/ocean/projects/cis220039p/mdt2/djariwala/semseg_datasets/cityscapes'
+data_root = 'datasets/cityscapes'
 
 test_dataloader = dict(
     batch_size=1,

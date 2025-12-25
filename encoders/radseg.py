@@ -1,4 +1,4 @@
-"""Includes the RADSeg  Encoder based on RADIO model.
+"""Includes the RADSeg Encoder.
 
 The module only relies on the base.py and prompt_templates.py files in
 image_encoders. Encoder can be copied with those files to your own project.
@@ -133,7 +133,7 @@ class SimilarityAttn(nn.Module):
     q = q.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
     k = k.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
     v = v.contiguous().view(-1, bsz * num_heads, head_dim).transpose(0, 1)
-    # kk.T vs kq.T has the most impact
+
     attn_weights = torch.bmm(q, k.transpose(1, 2)) * scale
     attn_weights = F.softmax(attn_weights, dim=-1)
     attn_output = torch.bmm(attn_weights, v)
@@ -153,22 +153,10 @@ class SimilarityAttn(nn.Module):
       -1, bsz, embed_dim)
     attn_output = self.proj(attn_output)
     attn_output = self.proj_drop(attn_output)
-
-    # attn_output = torch.bmm(sim_matrix,attn_output).transpose(0, 1).contiguous().view(
-    #   -1, bsz, embed_dim)
     
     return attn_output
 
 class RADSegEncoder(LangSpatialGlobalImageEncoder):
-  """The RayFronts Encoder based on NACLIP + RADIO models.
-
-  The model modifies the attention of the last layer of RADIO following the
-  example of NACLIP improving spatial structure. And uses the Summary CLS 
-  projection to project the patch-wise tokens to SIGLIP or CLIP language aligned
-  feature spaces. The model computes na-radio spatial or global features by
-  default and exposes functions to project those features to Siglip, or CLIP
-  feature spaces.
-  """
 
   def __init__(self, device: str =None,
                model_version: str = "radio_v3-b",
@@ -191,26 +179,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                sam_model_type='vit_h',
                sam_refinement = False,
                **kwargs):
-    """
-
-    Args:
-      device: "cpu" or "cuda", set to None to use CUDA if available.
-      model_version: Choose from "radio_v3-x" where x can be b,l, or g.
-        More models can be found on https://github.com/NVlabs/RADIO/
-      lang_model: choose from ["siglip2", "clip"]
-      input_resolution: Tuple of ints (height, width) of the input images.
-        Needed to initialize the guassian attention window.
-      gauss_std: Standard deviation of the gaussian kernel.
-      return_radio_features: Whether to return radio features which are not
-        language aligned or whether to project them to the language aligned
-        space directly. If True, then the user can always later use the
-        functions `align_global_features_with_language` or 
-        `align_spatial_features_with_language` to project the radio features
-        to be language aligned.
-      compile: Whether to compile the model or not. Compiling may be faster but may increase memory usage.
-      amp: Whether to use automatic mixed percision or not.
-    """
-
+    
     super().__init__(device)
 
     self.compile = compile
@@ -617,6 +586,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prob_thd] = 0
 
     if self.sam_refinement:
+      import pdb; pdb.set_trace()
 
       sam_image, new_h, new_w = self.preprocess_sam(img[0], target_size=self.sam_target_size)
       image_features = self.encode_image_to_feat_map(sam_image)
