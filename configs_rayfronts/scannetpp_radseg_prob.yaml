@@ -1,0 +1,51 @@
+defaults:
+  - default
+  - override dataset: scannetpp
+  - override encoder: semseg_wrap
+  - override mapping: semantic_voxel_map
+  - override vis: rerun # Choose the visualizer - can be either rerun or null
+
+# Choose any suitable folder for saving the results
+eval_out: eval_out/radseg_prob
+
+load_external_gt: True
+prediction_thresh: 0.1 # Threshold after which a prediction is made.
+prompt_denoising_thresh: 0.5 # Confidence threshold below which the target class prompt is removed
+k: 5 # K nearest neighbor value for aligning voxels. Set to 0 to impose a 1-to-1 mapping (0 distance)
+
+# For running the evaluation script on multiple scenes at the same time.
+hydra:
+  sweeper:
+    params:
+      dataset.scene_name: 00777c41d4, bcd2436daf, a5114ca13d, 2b1dc6d6a5, d551dac194, f9f95681fd, ea42cd27e6, 20ff72df6e, bf6e439e38
+
+dataset:
+  path: ??? # Add the path to the dataset
+  scene_name: ea42cd27e6
+  rgb_resolution: [640, 960]
+  depth_resolution: [640, 960]
+  frame_skip: 10
+
+mapping:
+  vox_size: 0.05 # 5cm voxels
+  vox_accum_period: 4
+  max_pts_per_frame: -1
+
+encoder:
+  encoder:
+    model_version: c-radio_v3-b
+    lang_model: siglip2
+    compile: false
+    amp: false
+    sim_scale: 10
+    agg_beta: 1.0
+    agg_gamma: 10.0
+    use_sliding_window: True
+    slide_crop_size: 336
+    slide_stride: 112
+
+
+querying:
+  text_query_mode: labels
+
+no_caching: true

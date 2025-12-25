@@ -1,0 +1,51 @@
+defaults:
+  - default
+  - override dataset: niceslam_replica # Make sure to include semseg_info
+  - override encoder: radiosim
+  - override mapping: semantic_voxel_map
+  - override vis: rerun # Choose the visualizer - can be either rerun or null
+  - _self_
+
+# Choose any suitable folder for saving the results
+eval_out: eval_out/radseg
+
+load_external_gt: True
+prediction_thresh: 0.1 # Threshold after which a prediction is made.
+prompt_denoising_thresh: 0.5 # Confidence threshold below which the target class prompt is removed
+k: 5 # K nearest neighbor value for aligning voxels. Set to 0 to impose a 1-to-1 mapping (0 distance)
+
+# For running the script on multiple scenes at the same time.
+hydra:
+  sweeper:
+    params:
+      dataset.scene_name: office0,office1,office2,office3,office4,room0,room1,room2
+
+dataset:
+  path: ??? # Add the path to the dataset
+  scene_name: office2
+  rgb_resolution: [640, 1136]
+  depth_resolution: [640, 1136]
+  frame_skip: 10
+
+encoder:
+  model_version: c-radio_v3-b
+  lang_model: siglip2
+  compile: false
+  amp: false
+  sim_scale: 10
+  use_sliding_window: True
+  slide_crop_size: 336
+  slide_stride: 112
+  agg_beta: 1.0
+  agg_gamma: 10.0
+
+mapping:
+  vox_size: 0.05 #5cm voxels
+  vox_accum_period: 4
+  max_pts_per_frame: -1
+
+querying:
+  text_query_mode: labels
+
+# Comment out to include background classes.
+#classes_to_ignore: ["wall", "floor", "ceiling", "door", "window", "background"]
