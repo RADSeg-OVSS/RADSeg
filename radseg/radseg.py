@@ -211,7 +211,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       self.coarse_thresh = coarse_thresh
       self.minimal_area = minimal_area
       self.sam_mask_coff = sam_mask_coff
-      self.sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt).to(device=device).eval()
+      self.sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt).to(device=self.device).eval()
       self.sam_predictor = SamPredictor(self.sam)
       del self.sam.image_encoder.blocks
       del self.sam.image_encoder.patch_embed
@@ -308,10 +308,10 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     if self.sam_refinement:
       assert rgb_image.shape[0] == 1
       sam_image, new_h, new_w = self._preprocess_sam(rgb_image[0], target_size=1024)
-      image_features = self.encode_image_to_feat_map(sam_image)
+      image_features = self._single_inference(sam_image)
       sam_features = self.get_sam_spatial_features(image_features).float()
       sam_features = self._interpolate_to_sam_dims(sam_features)
-      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)    
+      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)
       self.sam_predictor.features = sam_features
       self.sam_predictor.is_image_set = True
       self.sam_predictor.original_size = orig_img_size
