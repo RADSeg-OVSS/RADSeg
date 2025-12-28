@@ -1,4 +1,4 @@
-"""Script to run all RADSeg evals on all datasets on all resolutions"""
+"""Script to run all RADSeg evals on all 2D datasets on all resolutions"""
 
 import os
 

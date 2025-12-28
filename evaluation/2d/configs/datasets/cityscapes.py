@@ -19,9 +19,7 @@ test_dataloader = dict(
 
 # model settings
 model = dict(
-    name_path='./configs_mmseg/cls_city_scapes.txt',
+    name_path='./configs/cls_city_scapes.txt',
     # SAM params
-    cos_fac = 3.0,
-    refine_neg_cos = False,
     coarse_thresh=0.10,
 )

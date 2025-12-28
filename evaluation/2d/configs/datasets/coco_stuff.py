@@ -19,7 +19,7 @@ test_dataloader = dict(
 
 # model settings
 model = dict(
-    name_path='./configs_mmseg/cls_coco_stuff.txt',
+    name_path='./configs/cls_coco_stuff.txt',
     # SAM params
     coarse_thresh=0.05,
 )

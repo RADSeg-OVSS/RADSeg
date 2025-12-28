@@ -12,7 +12,19 @@ model = dict(
 )
 
 test_evaluator = dict(type='IoUMetric', iou_metrics=['mIoU'])
-
+test_dataloader = dict(
+    batch_size=1,
+    num_workers=4,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(
+        type=None,
+        data_root=None,
+        data_prefix=dict(
+            img_path='JPEGImages', seg_map_path='SegmentationClass'),
+        ann_file='ImageSets/Segmentation/val.txt'
+    )
+)
 default_scope = 'mmseg'
 env_cfg = dict(
     cudnn_benchmark=True,

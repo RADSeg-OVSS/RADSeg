@@ -20,7 +20,7 @@ test_dataloader = dict(
 
 # model settings
 model = dict(
-    name_path='./configs_mmseg/cls_context59.txt',
+    name_path='./configs/cls_context59.txt',
     # SAM params
     coarse_thresh = 0.15,
 )

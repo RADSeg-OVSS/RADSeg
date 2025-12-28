@@ -11,7 +11,7 @@ import radseg_segmentor
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluation with MMSeg')
-    parser.add_argument('--config',type=str, default='configs_mmseg/mid_res_configs/cfg_voc20.py')
+    parser.add_argument('--config',type=str, default='configs_2d/mid_res_configs/cfg_voc20.py')
     parser.add_argument('--work-dir',type=str, default='./work_logs/')
     parser.add_argument('--model_version',type=str, default='c-radio_v3-b', help='radio model version')
     parser.add_argument('--lang_model',type=str, default='siglip2', help='language model')
@@ -36,6 +36,10 @@ def main():
     cfg.model.sam_refinement = args.sam_refine
 
     runner = Runner.from_cfg(cfg)
+
+    # Inject class names into model if no prompt file path is provided
+    if not hasattr(cfg.model, "name_path"):
+        runner.model.model._init_semseg_prompts(runner.test_dataloader.dataset.metainfo["classes"])
 
     results = runner.test()
 

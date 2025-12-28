@@ -3,7 +3,7 @@ defaults:
   - override dataset: niceslam_replica # Make sure to include semseg_info
   - override encoder: radiosim_refine
   - override mapping: semantic_voxel_map
-  - override vis: rerun # Choose the visualizer - can be either rerun or null
+  - override vis: null # Choose the visualizer - can be either rerun or null
   - _self_
 
 # Choose any suitable folder for saving the results

@@ -12,7 +12,7 @@ Typical Usage:
 
   labels = ["car", "person"]
 
-  enc = RADSegEncoder(model_version="radio_v3-b", lang_model="siglip2")
+  enc = RADSegEncoder(model_version="c-radio_v3-b", lang_model="siglip2")
   
   feat_map = enc.encode_image_to_feat_map(rgb_img)
   lang_aligned_feat_map = enc.align_spatial_features_with_language(feat_map)
@@ -28,28 +28,15 @@ from typing_extensions import override, List, Tuple
 import torch
 import numpy as np
 
-from encoders.base import LangSpatialGlobalImageEncoder
+from radseg.base import LangSpatialGlobalImageEncoder
 from segment_anything import sam_model_registry, SamPredictor
-from sam_utils import sam_refinement
+from radseg.sam_utils import sam_refinement
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from timm.layers import use_fused_attn
 import math
-
-def get_cls_idx(path):
-    with open(path, 'r') as f:
-        name_sets = f.readlines()
-    num_cls = len(name_sets)
-
-    class_names, class_indices = list(), list()
-    for idx in range(num_cls):
-        names_i = name_sets[idx].split(', ')
-        class_names += names_i
-        class_indices += [idx for _ in range(len(names_i))]
-    class_names = [item.replace('\n', '') for item in class_names]
-    return class_names, class_indices
 
 def compute_cos_sim(vec1: torch.FloatTensor,
                     vec2: torch.FloatTensor,
@@ -85,14 +72,11 @@ def compute_cos_sim(vec1: torch.FloatTensor,
         return sim
 
 
-class SimilarityAttn(nn.Module):
-  """Encompases the NACLIP attention mechanism."""
-
+class SelfCorrelatingRecursiveAttn(nn.Module):
   def __init__(
     self,
     orig_attn,
     device,
-    chosen_cls_id: int,
     dim: int,
     qk_norm: bool = False,
     scra_scaling: int = 10
@@ -104,7 +88,6 @@ class SimilarityAttn(nn.Module):
     self.head_dim = dim // num_heads
     self.scale = self.head_dim ** -0.5
     self.fused_attn = use_fused_attn()
-    self.chosen_cls_id = chosen_cls_id
 
     self.qkv = orig_attn.qkv
     self.q_norm = orig_attn.q_norm if qk_norm else nn.Identity()
@@ -142,7 +125,7 @@ class SimilarityAttn(nn.Module):
     attn_output = self.proj(attn_output)
     attn_output = self.proj_drop(attn_output)
 
-    # Similarity Attention 
+    # Self Correlating Recursive Attention 
     attn_output = attn_output.view(-1, bsz * num_heads, head_dim).transpose(0, 1)
     sim_tokens =  F.normalize(attn_output,dim = -1)
     sim_matrix = torch.bmm(sim_tokens,sim_tokens.transpose(1,2))*self.scra_scaling
@@ -157,28 +140,30 @@ class SimilarityAttn(nn.Module):
     return attn_output
 
 class RADSegEncoder(LangSpatialGlobalImageEncoder):
-
-  def __init__(self, device: str =None,
+  def __init__(self,
+               device: str = None,
                model_version: str = "radio_v3-b",
                lang_model: str ="siglip2",
                return_radio_features: bool = True,
-               compile: bool = True,
+               compile: bool = False,
                amp: bool = False,
-               scra_scaling: float = 10.0,
-               name_path: str = "",
-               prob_thd: float = 0.0,
+               predict: bool = False,
+               compute_prob: bool = True,
+               classes: List[str] = None,
+               text_query_mode: str = "labels",
+               prediction_thresh: float = 0.0,
                prompt_denoising_thresh: float = 0.5,
-               slide_stride: int = 224,
-               slide_crop: int = 336,
+               scra_scaling: float = 10.0,
                scga_scaling: float = 10.0,
-               sam_ckpt= '/path/to/sam_h_ckpt',
-               coarse_thresh=0.10,
-               minimal_area=225,
-               sam_mask_coff=0.005, 
-               sam_target_size = 1024,
-               sam_model_type='vit_h',
-               sam_refinement = False,
-               **kwargs):
+               slide_crop: int = 336,
+               slide_stride: int = 224,
+               # Sam refinement args
+               sam_refinement: bool = False,
+               sam_ckpt: str = 'sam_vit_h_4b8939.pth',
+               coarse_thresh: float = 0.10,
+               minimal_area: int = 225,
+               sam_mask_coff: float = 0.005, 
+               sam_iou_thresh = 0.9):
     
     super().__init__(device)
 
@@ -193,65 +178,66 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                                 adaptor_names=adaptor_names)
     self.model.eval()
     self.model = self.model.to(self.device)
-    self.model.make_preprocessor_external()
     # Steal adaptors from RADIO so it does not auto compute adaptor output.
     # We want to control when that happens.
     self.lang_adaptor = self.model.adaptors[lang_model]
     self.sam_adaptor = self.model.adaptors["sam"]
     self.model.adaptors = None
     last_block = self.model.model.blocks[-1]
-    last_block.attn = SimilarityAttn(
+    last_block.attn = SelfCorrelatingRecursiveAttn(
       last_block.attn,
       dim=self.model.model.embed_dim,
-      chosen_cls_id=self.lang_adaptor.head_idx,
       device=self.device,
       scra_scaling=scra_scaling)
 
-    self.times = list()
     if self.compile:
       self.model.compile(fullgraph=True, options={"triton.cudagraphs":True})
       self.lang_adaptor.compile(fullgraph=True, options={"triton.cudagraphs":True})
 
-    query_words, self.query_idx = get_cls_idx(name_path)
-    self.num_queries = len(query_words)
-    self.query_idx = torch.Tensor(self.query_idx).to(torch.int64).to(device)
-    self.query_features = self.encode_labels(query_words)
-    self.dtype = self.query_features.dtype
-    self.prob_thd = prob_thd
-    self.align_corners = False
+    self.predict = predict
+    self.prediction_thresh = prediction_thresh
+    self.compute_prob = compute_prob
+    self.text_query_mode = text_query_mode
     self.prompt_denoising_thresh = prompt_denoising_thresh
+
+    if classes is not None and len(classes) > 0:
+      self._init_semseg_prompts(classes)
+
     self.slide_stride = slide_stride
     self.slide_crop = slide_crop
-    self.device = device
     self.scga_scaling = scga_scaling
 
-    self.sam_iou_thresh = kwargs.get('sam_iou_thresh', 0.9)
-    self.sam = sam_model_registry[sam_model_type](checkpoint=sam_ckpt).to(device=device).eval()
-    self.sam_predictor = SamPredictor(self.sam)
-    self.sam.prompt_encoder = self.sam.prompt_encoder.float()
-    self.sam.mask_decoder = self.sam.mask_decoder.float()
-    self.coarse_thresh = coarse_thresh
-    self.minimal_area = minimal_area
-    self.sam_mask_coff = sam_mask_coff
-    self.sam_target_size = sam_target_size
-
+    # Sam refinement args
     self.sam_refinement = sam_refinement
+    if sam_refinement:
+      self.sam_iou_thresh = sam_iou_thresh
+      self.coarse_thresh = coarse_thresh
+      self.minimal_area = minimal_area
+      self.sam_mask_coff = sam_mask_coff
+      self.sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt).to(device=device).eval()
+      self.sam_predictor = SamPredictor(self.sam)
+      del self.sam.image_encoder.blocks
+      del self.sam.image_encoder.patch_embed
+      torch.cuda.empty_cache()
 
-  @property
-  def input_resolution(self):
-    return self.model.model.blocks[-1].attn.input_resolution
-
-  @input_resolution.setter
-  def input_resolution(self, value):
-    if hasattr(value, "__len__") and len(value) == 2:
-      if self.is_compatible_size(*value):
-        self.model.model.blocks[-1].attn.update_input_resolution(value)
-        if self.compile:
-          self.model.compile(fullgraph=True, options={"triton.cudagraphs":True})
+  def _init_semseg_prompts(self, prompts):
+    self.prompts = prompts
+    self._cat_id_to_name = None
+    if self.prompts is not None and len(self.prompts) > 0:
+      self.prompts = list(self.prompts)
+      if len(self.prompts[0]) == 0: # Remove ignore class so we don't prompt
+        self.prompts.pop(0)
+      self._cat_index_to_name = {0: ''}
+      self._cat_index_to_name.update({i+1: v for i,v in enumerate(self.prompts)})
+      self._cat_name_to_index = {
+        v: k for k, v in self._cat_index_to_name.items()
+      }
+      if self.text_query_mode == "labels":
+        self.text_embeds = self.encode_labels(self.prompts)
+      elif self.text_query_mode == "prompts":
+        self.text_embeds = self.encode_prompts(self.prompts)
       else:
-        raise ValueError(f"Incompatible input resolution {value}")
-    else:
-      raise ValueError("Input resolution must be a tuple of two ints")
+        raise ValueError("Invalid query type")
 
   @override
   def encode_labels(self, labels: List[str]) -> torch.FloatTensor:
@@ -353,18 +339,6 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       out = self.sam_adaptor.feat_mlp(features)
 
     return out.permute(0, 2, 1).reshape(B, -1, H, W)
-
-  def get_sam_summary_features(self, features: torch.FloatTensor):
-    if self.sam_adaptor is None:
-      raise ValueError("Cannot align to sam without a sam model")
-
-    B,C,H,W = features.shape
-    features = features.permute(0, 2, 3, 1).reshape(B, -1, C)
-
-    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-      out = self.sam_adaptor.head_mlp(features)
-      
-    return out.permute(0, 2, 1).reshape(B, -1, H, W)
   
   @override
   def is_compatible_size(self, h: int, w: int):
@@ -375,17 +349,16 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
   def get_nearest_size(self, h, w):
     return self.model.get_nearest_supported_resolution(h, w)
 
-  def interpolate_to_sam_dims(self,feature_map):
-
-    h,w = feature_map.shape[2:]
-  
+  def _interpolate_to_sam_dims(self, feature_map):
     feat_h = feature_map.shape[2]
     feat_w = feature_map.shape[3]
-    feature_map = F.interpolate(feature_map, size=(feat_h, feat_w), mode='bilinear', align_corners=False, antialias=True)
+    feature_map = F.interpolate(
+      feature_map, size=(feat_h, feat_w), mode='bilinear',
+      align_corners=False, antialias=True)
     feature_map = F.pad(feature_map, (0, 64 - feat_w, 0, 64 - feat_h))
     return feature_map
 
-  def preprocess_sam(self,image: torch.Tensor, target_size: int = 1024) -> torch.Tensor:
+  def _preprocess_sam(self, image: torch.Tensor, target_size: int = 1024) -> torch.Tensor:
     """
     Preprocess an image tensor for SAM.
     
@@ -402,18 +375,18 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     C, H, W = image.shape
 
     if H >= W:
-      new_h = 1024
-      new_w = int(W * 64 /H)*16
+      new_h = target_size
+      new_w = int(W * 64 /H) * 16
     else:
-      new_w = 1024
-      new_h = int(H * 64 / W)*16
+      new_w = target_size
+      new_h = int(H * 64 / W) * 16
 
     image = image.unsqueeze(0)  # add batch dim
     image = F.interpolate(image, size=(new_h, new_w), mode="bilinear", align_corners=False)
 
     return image, new_h, new_w
 
-  def aggregate_features(self,feat_map):
+  def _aggregate_features(self,feat_map):
 
     b,tokens,h,w = feat_map.shape
     feat_map = feat_map.flatten(2,3).transpose(1,2)
@@ -427,7 +400,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     return attn_output
 
-  def get_seg_logits(self,feat_map):
+  def _get_seg_logits(self,feat_map):
 
     image_features = self.align_spatial_features_with_language(feat_map)
     feat_map = image_features.permute(0, 2, 3, 1)
@@ -436,17 +409,17 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     feat_map = feat_map.reshape(-1, C)
 
     cos_sim = compute_cos_sim(
-      self.query_features, feat_map,
+      self.text_embeds, feat_map,
       softmax=True)
 
-    N = len(self.query_features)
+    N = len(self.text_embeds)
 
     cos_sim = cos_sim.reshape(B,H,W,N)
     cos_sim = cos_sim.permute(0,3,1,2)
     
     return cos_sim
 
-  def preprocess_image(self, image, stride=16, slide_crop=336):
+  def _preprocess_image(self, image, stride=16, slide_crop=336):
     longer_side = max(image.shape[2:])
     h, w = image.shape[2:]
     if h%stride == 0 and w%stride == 0:
@@ -464,7 +437,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     return image
 
-  def get_windowed_imgs(self, img, patch_size=16):
+  def _get_windowed_imgs(self, img, patch_size=16):
     stride, crop_size = self.slide_stride, self.slide_crop
     if type(img) == list:
       img = img[0].unsqueeze(0)
@@ -497,15 +470,14 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     batched_imgs = torch.cat(crop_imgs, dim=0) # [n_patches, 3, h, w]
     return batched_imgs, patch_locs, (h_grids,w_grids)
 
-  def get_features(self, img):
-
+  def _get_features(self, img):
     if type(img) == list:
       img = img[0]
 
     image_features = self.encode_image_to_feat_map(img)
     return image_features
 
-  def get_features_slide(self, img, stride=224, crop_size=336):
+  def _get_features_slide(self, img, stride=224, crop_size=336):
     """
     Inference by sliding-window with overlap. If h_crop > h_img or w_crop > w_img,
     the small patch will be used to decode without padding.
@@ -518,14 +490,14 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     if type(crop_size) == int:
       crop_size = (crop_size, crop_size)
         
-    img = self.preprocess_image(img, stride[0], crop_size[0])
+    img = self._preprocess_image(img, stride[0], crop_size[0])
     
-    batched_imgs, patch_locs, (h_grids,w_grids) = self.get_windowed_imgs(img, patch_size=16)
+    batched_imgs, patch_locs, (h_grids,w_grids) = self._get_windowed_imgs(img, patch_size=16)
     batch_size = img.shape[0]
     _, _, h_img, w_img = img.shape
     
 
-    image_feats = self.get_features(batched_imgs)
+    image_feats = self._get_features(batched_imgs)
     feat_dim = image_feats.shape[1]
     dtype = image_feats.dtype
     device = image_feats.device
@@ -543,34 +515,24 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     return feat_map
 
-  def get_seg_data(self,img, img_size = None):
+  def _get_seg_data(self,img, img_size = None):
 
-    # Currently only batch size of 1 is supported
     assert img.shape[0] == 1  
 
     if img_size is None:
       img_size = img.shape[-2:]
     
     if self.slide_crop > 0:
-      feat_map = self.get_features_slide(img, stride=self.slide_stride, crop_size=self.slide_crop)
+      feat_map = self._get_features_slide(img, stride=self.slide_stride, crop_size=self.slide_crop)
     else:
-      feat_map = self.get_features(img)
+      feat_map = self._get_features(img)
     
-    feat_map = self.aggregate_features(feat_map)
+    feat_map = self._aggregate_features(feat_map)
     
-    seg_logits = self.get_seg_logits(feat_map)
-    seg_logits = nn.functional.interpolate(seg_logits, size=img_size, mode='bilinear', align_corners=self.align_corners)
+    seg_logits = self._get_seg_logits(feat_map)
+    seg_logits = nn.functional.interpolate(seg_logits, size=img_size, mode='bilinear', align_corners=False)
 
     seg_probs = seg_logits[0]
-    #seg_probs = torch.softmax(seg_logits[i] * self.logit_scale, dim=0)  # n_queries * w * h
-    num_cls, num_queries = max(self.query_idx) + 1, len(self.query_idx)
-
-    if num_cls != num_queries:
-      seg_probs = seg_probs.unsqueeze(0)
-      cls_index = nn.functional.one_hot(self.query_idx)
-      cls_index = cls_index.T.view(num_cls, num_queries, 1, 1)
-      seg_probs = (seg_probs * cls_index).max(1)[0]
-      
     N,H,W = seg_probs.shape
     num_cls = N
 
@@ -583,24 +545,24 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     seg_probs = seg_probs.permute(1,0).reshape(-1,H,W)
     seg_pred = seg_probs.argmax(0, keepdim=True)
-    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prob_thd] = 0
+    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prediction_thresh] = 0
 
     if self.sam_refinement:
-      import pdb; pdb.set_trace()
-
-      sam_image, new_h, new_w = self.preprocess_sam(img[0], target_size=self.sam_target_size)
+      sam_image, new_h, new_w = self._preprocess_sam(img[0], target_size=1024)
       image_features = self.encode_image_to_feat_map(sam_image)
       sam_features = self.get_sam_spatial_features(image_features).float()
-      sam_features = self.interpolate_to_sam_dims(sam_features)
+      sam_features = self._interpolate_to_sam_dims(sam_features)
       sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)    
       self.sam_predictor.features = sam_features
       self.sam_predictor.is_image_set = True
       self.sam_predictor.original_size = img_size
       self.sam_predictor.input_size = (new_h, new_w)
       
-      refined_masks,scores,refined_logits,prompt_boxes = sam_refinement(img_size, seg_pred, seg_probs, num_cls,
-                                                                                  self.sam_predictor, self.coarse_thresh, self.minimal_area,
-                                                                                  self.sam_mask_coff, self.sam_iou_thresh)
+      refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
+        img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
+        self.coarse_thresh, self.minimal_area,
+        self.sam_mask_coff, self.sam_iou_thresh)
+      
       seg_pred = refined_masks
       seg_probs = refined_logits
 
