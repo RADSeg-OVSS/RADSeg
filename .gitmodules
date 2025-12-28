@@ -1,0 +1,3 @@
+[submodule "evaluation/3d/RayFronts"]
+	path = evaluation/3d/RayFronts
+	url = https://github.com/RayFronts/RayFronts.git
