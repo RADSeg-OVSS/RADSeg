@@ -37,7 +37,7 @@ class RADSegSegmentation(BaseSegmentor):
         super().__init__(data_preprocessor=data_preprocessor)
         
         cls_names, cls_idxs = get_cls_idx(name_path)
-        self.model = RADSegEncoder(classes=cls_names, **kwargs)
+        self.model = RADSegEncoder(classes=cls_names, predict=True, **kwargs)
         # MMSeg will control normalization
         self.model.model.make_preprocessor_external()
 
@@ -54,11 +54,12 @@ class RADSegSegmentation(BaseSegmentor):
 
         img_size = batch_img_metas[0]['ori_shape']
 
-        seg_pred,seg_probs = self.model._get_seg_data(inputs, img_size)
+        seg_probs, seg_preds = self.model.encode_image_to_feat_map(
+            inputs, img_size, return_preds=True)
 
         data_samples[0].set_data({
                 'seg_logits': PixelData(**{'data': seg_probs}),
-                'pred_sem_seg': PixelData(**{'data': seg_pred})
+                'pred_sem_seg': PixelData(**{'data': seg_preds})
             })
 
         return data_samples

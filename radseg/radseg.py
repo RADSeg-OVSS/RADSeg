@@ -71,7 +71,6 @@ def compute_cos_sim(vec1: torch.FloatTensor,
     else:
         return sim
 
-
 class SelfCorrelatingRecursiveAttn(nn.Module):
   def __init__(
     self,
@@ -148,7 +147,6 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                compile: bool = False,
                amp: bool = False,
                predict: bool = False,
-               compute_prob: bool = True,
                classes: List[str] = None,
                text_query_mode: str = "labels",
                prediction_thresh: float = 0.0,
@@ -196,7 +194,6 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     self.predict = predict
     self.prediction_thresh = prediction_thresh
-    self.compute_prob = compute_prob
     self.text_query_mode = text_query_mode
     self.prompt_denoising_thresh = prompt_denoising_thresh
 
@@ -276,34 +273,67 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
   @override
   def encode_image_to_feat_map(
-    self, rgb_image: torch.FloatTensor) -> torch.FloatTensor:
-    B, C, H, W = rgb_image.shape
-    H_, W_ = H // self.model.patch_size, W // self.model.patch_size
-    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-      out = self.model(rgb_image).features
-      if not self.return_radio_features:
-        out = self.lang_adaptor.head_mlp(out)
-    return out.permute(0, 2, 1).reshape(B, -1, H_, W_)
+    self, rgb_image: torch.FloatTensor, orig_img_size: Tuple[int] = None,
+    return_preds: bool = True) -> torch.FloatTensor:
+    if orig_img_size is None:
+      orig_img_size = rgb_image.shape[-2:]
+    
+    if self.slide_crop > 0:
+      feat_map = self._sliding_inference(rgb_image, stride=self.slide_stride, crop_size=self.slide_crop)
+    else:
+      feat_map = self._single_inference(rgb_image)
+    
+    feat_map = self._self_correlating_global_aggregation(feat_map)
+    if not self.predict:
+      return feat_map
+
+    seg_logits = self._get_seg_logits(feat_map)
+    seg_logits = nn.functional.interpolate(seg_logits, size=orig_img_size, mode='bilinear', align_corners=False)
+
+    seg_probs = seg_logits[0]
+    N,H,W = seg_probs.shape
+    num_cls = N
+
+    seg_probs = seg_probs.permute(1,2,0)
+    seg_probs = seg_probs.reshape(-1,N)
+    max_sim = torch.max(seg_probs, dim=0).values
+
+    low_conf_classes = torch.argwhere(max_sim < self.prompt_denoising_thresh)
+    seg_probs[:, low_conf_classes] = -torch.inf
+
+    seg_probs = seg_probs.permute(1,0).reshape(-1,H,W)
+    seg_pred = seg_probs.argmax(0, keepdim=True)
+    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prediction_thresh] = 0
+
+    if self.sam_refinement:
+      assert rgb_image.shape[0] == 1
+      sam_image, new_h, new_w = self._preprocess_sam(rgb_image[0], target_size=1024)
+      image_features = self.encode_image_to_feat_map(sam_image)
+      sam_features = self.get_sam_spatial_features(image_features).float()
+      sam_features = self._interpolate_to_sam_dims(sam_features)
+      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)    
+      self.sam_predictor.features = sam_features
+      self.sam_predictor.is_image_set = True
+      self.sam_predictor.original_size = orig_img_size
+      self.sam_predictor.input_size = (new_h, new_w)
+      
+      refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
+        orig_img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
+        self.coarse_thresh, self.minimal_area,
+        self.sam_mask_coff, self.sam_iou_thresh)
+      
+      seg_pred = refined_masks
+      seg_probs = refined_logits
+
+    if return_preds:
+      return seg_probs, seg_pred
+    else:
+      return seg_probs
 
   @override
   def encode_image_to_feat_map_and_vector(self, rgb_image: torch.FloatTensor) \
       -> Tuple[torch.FloatTensor, torch.FloatTensor]:
-    B, C, H, W = rgb_image.shape
-    H_, W_ = H // self.model.patch_size, W // self.model.patch_size
-    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-      out = self.model(rgb_image)
-
-      C = out.summary.shape[-1] // 3
-      i = self.lang_adaptor.head_idx
-      global_vector = out.summary[:, C*i: C*(i+1)]
-
-      feat_map = out.features
-
-      if not self.return_radio_features:
-        global_vector = self.lang_adaptor.head_mlp(global_vector)
-        feat_map = self.lang_adaptor.head_mlp(feat_map)
-
-    return feat_map, global_vector
+    raise NotImplementedError()
 
   @override
   def align_global_features_with_language(self, features: torch.FloatTensor):
@@ -326,7 +356,6 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
       out = self.lang_adaptor.head_mlp(features)
     return out.permute(0, 2, 1).reshape(B, -1, H, W)
-
 
   def get_sam_spatial_features(self, features: torch.FloatTensor):
     if self.sam_adaptor is None:
@@ -386,7 +415,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     return image, new_h, new_w
 
-  def _aggregate_features(self,feat_map):
+  def _self_correlating_global_aggregation(self,feat_map):
 
     b,tokens,h,w = feat_map.shape
     feat_map = feat_map.flatten(2,3).transpose(1,2)
@@ -470,14 +499,16 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     batched_imgs = torch.cat(crop_imgs, dim=0) # [n_patches, 3, h, w]
     return batched_imgs, patch_locs, (h_grids,w_grids)
 
-  def _get_features(self, img):
-    if type(img) == list:
-      img = img[0]
+  def _single_inference(self, rgb_image):
+    B, C, H, W = rgb_image.shape
+    H_, W_ = H // self.model.patch_size, W // self.model.patch_size
+    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+      out = self.model(rgb_image).features
+      if not self.return_radio_features:
+        out = self.lang_adaptor.head_mlp(out)
+    return out.permute(0, 2, 1).reshape(B, -1, H_, W_)
 
-    image_features = self.encode_image_to_feat_map(img)
-    return image_features
-
-  def _get_features_slide(self, img, stride=224, crop_size=336):
+  def _sliding_inference(self, img, stride=224, crop_size=336):
     """
     Inference by sliding-window with overlap. If h_crop > h_img or w_crop > w_img,
     the small patch will be used to decode without padding.
@@ -496,8 +527,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     batch_size = img.shape[0]
     _, _, h_img, w_img = img.shape
     
-
-    image_feats = self._get_features(batched_imgs)
+    image_feats = self._single_inference(batched_imgs)
     feat_dim = image_feats.shape[1]
     dtype = image_feats.dtype
     device = image_feats.device
@@ -514,57 +544,3 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     feat_map = feat_map / count_mat  # 1, D, dst_h, dst_w
 
     return feat_map
-
-  def _get_seg_data(self,img, img_size = None):
-
-    assert img.shape[0] == 1  
-
-    if img_size is None:
-      img_size = img.shape[-2:]
-    
-    if self.slide_crop > 0:
-      feat_map = self._get_features_slide(img, stride=self.slide_stride, crop_size=self.slide_crop)
-    else:
-      feat_map = self._get_features(img)
-    
-    feat_map = self._aggregate_features(feat_map)
-    
-    seg_logits = self._get_seg_logits(feat_map)
-    seg_logits = nn.functional.interpolate(seg_logits, size=img_size, mode='bilinear', align_corners=False)
-
-    seg_probs = seg_logits[0]
-    N,H,W = seg_probs.shape
-    num_cls = N
-
-    seg_probs = seg_probs.permute(1,2,0)
-    seg_probs = seg_probs.reshape(-1,N)
-    max_sim = torch.max(seg_probs, dim=0).values
-
-    low_conf_classes = torch.argwhere(max_sim < self.prompt_denoising_thresh)
-    seg_probs[:, low_conf_classes] = -torch.inf
-
-    seg_probs = seg_probs.permute(1,0).reshape(-1,H,W)
-    seg_pred = seg_probs.argmax(0, keepdim=True)
-    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prediction_thresh] = 0
-
-    if self.sam_refinement:
-      sam_image, new_h, new_w = self._preprocess_sam(img[0], target_size=1024)
-      image_features = self.encode_image_to_feat_map(sam_image)
-      sam_features = self.get_sam_spatial_features(image_features).float()
-      sam_features = self._interpolate_to_sam_dims(sam_features)
-      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)    
-      self.sam_predictor.features = sam_features
-      self.sam_predictor.is_image_set = True
-      self.sam_predictor.original_size = img_size
-      self.sam_predictor.input_size = (new_h, new_w)
-      
-      refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
-        img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
-        self.coarse_thresh, self.minimal_area,
-        self.sam_mask_coff, self.sam_iou_thresh)
-      
-      seg_pred = refined_masks
-      seg_probs = refined_logits
-
-    
-    return seg_pred, seg_probs
