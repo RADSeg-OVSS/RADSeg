@@ -1,5 +1,4 @@
-<h1 align="center">Open-Set Semantic Ray Frontiers <br/>
-  for Online Scene Understanding and Exploration</h1>
+<h1 align="center">RADSeg: Unleashing Parameter and Compute Efficient Zero-Shot Open-Vocabulary Segmentation Using Agglomerative Models</h1>
 
 <p align="center">
   <a href="https://oasisartisan.github.io/"><strong>Omar Alama</strong></a>*
