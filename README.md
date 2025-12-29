@@ -3,13 +3,13 @@
 
 <p align="center">
   <a href="https://oasisartisan.github.io/"><strong>Omar Alama</strong></a>*
-  .
-  <a href="https://www.linkedin.com/in/darshil-jariwala"><strong>Darshil Jariwala</strong></a>*
-  .
-  <a href="https://avigyanbh.github.io/"><strong>Avigyan Bhattacharya</strong></a>*
   ·
-  <a href="https://seungchan-kim.github.io/"><strong>Seungchan Kim</strong></a>
+  <a href="https://www.linkedin.com/in/darshil-jariwala"><strong>Darshil Jariwala</strong></a>*
+  ·
+  <a href="https://avigyanbh.github.io/"><strong>Avigyan Bhattacharya</strong></a>*
   <br>
+  <a href="https://seungchan-kim.github.io/"><strong>Seungchan Kim</strong></a>
+  ·
   <a href="https://theairlab.org/team/wenshan/"><strong>Wenshan Wang</strong></a>
   ·
   <a href="https://theairlab.org/team/sebastian/"><strong>Sebastian Scherer</strong></a>
