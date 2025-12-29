@@ -44,11 +44,6 @@ Additional dependencies for 2D evaluation:
 Additional dependencies for 3D evaluation
 TODO !!!!!!!!!!!!!!!!!!!
 
-4. **2D Dataset Preparation:**
-   Please follow the [MMSegmentation data preparation](https://github.com/open-mmlab/mmsegmentation/blob/main/docs/en/user_guides/2_dataset_prepare.md) to download and process the 5 2D datasets.
-
-5. **3D Dataset Preparation:**
-
 ## Running the Demo
 TODO: Hugging face demo
 
