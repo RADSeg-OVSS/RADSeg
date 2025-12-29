@@ -16,21 +16,22 @@ Existing SOTA OVSS approaches often rely on heavy combinations of multiple model
 - **Efficiency**: 3.9x faster inference and 2.5x fewer parameters than comparable state-of-the-art methods.
 - **Performance**: Significant mIoU improvements (6-30% on base ViT class) across benchmarks.
 
-## Setup
+## Environment Setup
 
-1. Create a conda environment and install base dependencies:
-   ```bash
-   conda env create -f environment.yml
-   conda activate radseg
-   ```
+Create a conda environment and install base dependencies:
+```bash
+conda env create -f environment.yml
+conda activate radseg
+```
 
-2. Install OpenMMLab dependencies:
+Additional dependencies for 2D evaluation:
+1. Install OpenMMLab dependencies:
    ```bash
    pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4/index.html
    pip install mmsegmentation==1.2.2
    ```
 
-3. **MMSegmentation Compatibility:** 
+2. **MMSegmentation Compatibility:** 
    In `{site-packages-path}/mmseg/__init__.py`, you may need to update the `mmcv` version check (Approved by original mmcv author). Change:
    ```python
    assert (mmcv_min_version <= mmcv_version < mmcv_max_version)
@@ -40,16 +41,24 @@ Existing SOTA OVSS approaches often rely on heavy combinations of multiple model
    assert (mmcv_min_version <= mmcv_version <= mmcv_max_version)
    ```
 
+Additional dependencies for 3D evaluation
+TODO !!!!!!!!!!!!!!!!!!!
+
 4. **2D Dataset Preparation:**
    Please follow the [MMSegmentation data preparation](https://github.com/open-mmlab/mmsegmentation/blob/main/docs/en/user_guides/2_dataset_prepare.md) to download and process the 5 2D datasets.
 
 5. **3D Dataset Preparation:**
 
-## Usage
+## Running the Demo
+TODO: Hugging face demo
 
-### Evaluation
+## 2D Evaluation
 
-To evaluate RADSeg on a specific dataset:
+### Dataset Preparation
+Please follow the [MMSegmentation data preparation](https://github.com/open-mmlab/mmsegmentation/blob/main/docs/en/user_guides/2_dataset_prepare.md) to download and process the 5 2D datasets.
+
+### Running Evaluation 
+To evaluate RADSeg on a specific 2D dataset, switch to the evaluation/2d directory and run:
 
 ```bash
 python eval.py \
@@ -70,7 +79,6 @@ Arguments:
 - `--scga_scaling`: Scaling factor for Self-Correlating Global Aggregation (SCGA).
 - `--sam_refine`: Enable RADIO-SAM mask refinement for RADSeg+ performance.
 
-### Evaluation across Different Resolutions and Datasets
 
 To run evaluation across multiple resolutions and configs as defined in `eval_all_multi_res.py`:
 
@@ -78,6 +86,18 @@ To run evaluation across multiple resolutions and configs as defined in `eval_al
 python eval_all_multi_res.py
 ```
 This script iterates over defined configurations (Low Resolution, Mid Resolution and High Resolution) and runs the evaluation automatically.
+
+## 3D Evaluation
+
+### Dataset Preparation
+TODO
+### Running Evaluation 
+TODO
+
+Switch to evaluation/3d directory
+```bash
+PYTHONPATH="../../:$PYTHONPATH" python RayFronts/scripts/semseg_eval.py --config-dir ./configs/ --config-name replica_radseg.yaml dataset.path="XXX"
+```
 
 ## Citation
 
