@@ -37,6 +37,7 @@ encoder:
   slide_stride: 112
   scga_scaling: 10.0
   scra_scaling: 10.0
+  # Set predict to true for probability space aggregation and set sam_refinement to true for RADSeg+ when doing probability space aggregation.
   sam_refinement: false
   predict: false
   sam_ckpt: sam_vit_h_4b8939.pth
