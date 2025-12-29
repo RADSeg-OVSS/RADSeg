@@ -6,7 +6,7 @@ This repository contains the official implementation of **RADSeg**, a framework 
 
 ## Introduction
 
-![RADSeg Architecture](assets/RADSeg-Diagram.png)
+![RADSeg Architecture](assets/abstract_figure.svg)
 *Figure 1: Overview of the RADSeg architecture.*
 
 Existing SOTA OVSS approaches often rely on heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, parameter and compute efficient approach by adapting **RADIO** for zero-shot open vocabulary segmentation.
@@ -27,6 +27,7 @@ conda activate radseg
 Additional dependencies for 2D evaluation:
 1. Install OpenMMLab dependencies:
    ```bash
+   pip install mmengine==0.10.1
    pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4/index.html
    pip install mmsegmentation==1.2.2
    ```
