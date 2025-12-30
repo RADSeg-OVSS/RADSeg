@@ -311,8 +311,8 @@ class RADSegEncoder(ImageSemSegEncoder):
     max_sim_per_pixel, seg_pred = torch.max(seg_probs, dim=1, keepdim=True) # Bx1xHxW
 
     if self.sam_refinement:
-      seg_pred = list()
-      seg_probs = list()
+      seg_pred_ref = list()
+      seg_probs_ref = list()
       for b in range(B):
         sam_image, new_h, new_w = self._preprocess_sam(rgb_image[b], target_size=1024)
         image_features = self._single_inference(sam_image)
@@ -325,14 +325,14 @@ class RADSegEncoder(ImageSemSegEncoder):
         self.sam_predictor.input_size = (new_h, new_w)
         
         refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
-          orig_img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
+          orig_img_size, seg_pred[b], seg_probs[b], num_cls, self.sam_predictor,
           self.coarse_thresh, self.minimal_area,
           self.sam_mask_coff, self.sam_iou_thresh)
       
-        seg_pred.append(refined_masks)
-        seg_probs.append(refined_logits)
-      seg_pred = torch.stack(seg_pred, dim=0)
-      seg_probs = torch.stack(seg_probs, dim=0)
+        seg_pred_ref.append(refined_masks)
+        seg_probs_ref.append(refined_logits)
+      seg_pred = torch.stack(seg_pred_ref, dim=0)
+      seg_probs = torch.stack(seg_probs_ref, dim=0)
 
     # Set low confidence predictions to the ignore label
     if ignore_label:
