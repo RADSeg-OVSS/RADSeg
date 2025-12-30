@@ -28,7 +28,7 @@ from typing_extensions import override, List, Tuple
 import torch
 import numpy as np
 
-from radseg.base import LangSpatialGlobalImageEncoder
+from radseg.base import ImageSemSegEncoder
 from segment_anything import sam_model_registry, SamPredictor
 from radseg.sam_utils import sam_refinement
 
@@ -138,7 +138,10 @@ class SelfCorrelatingRecursiveAttn(nn.Module):
     
     return attn_output
 
-class RADSegEncoder(LangSpatialGlobalImageEncoder):
+class RADSegEncoder(ImageSemSegEncoder):
+  # TODO: Split into feature encoder and semseg encoder for clarity instead
+  # of switching behaviors based on flags.
+
   def __init__(self,
                device: str = None,
                model_version: str = "radio_v3-b",
@@ -160,8 +163,8 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
                sam_ckpt: str = 'sam_vit_h_4b8939.pth',
                coarse_thresh: float = 0.10,
                minimal_area: int = 225,
-               sam_mask_coff: float = 0.005, 
-               sam_iou_thresh = 0.9):
+               sam_mask_coff: float = 0.005,
+               sam_iou_thresh: float = 0.9):
     
     super().__init__(device)
 
@@ -197,8 +200,25 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     self.text_query_mode = text_query_mode
     self.prompt_denoising_thresh = prompt_denoising_thresh
 
-    if classes is not None and len(classes) > 0:
-      self._init_semseg_prompts(classes)
+    if self.predict:
+      if classes is None or len(classes) < 1:
+        raise Exception("Must pass list of classes when predict is True")
+      self.prompts = list(classes)
+
+      if len(self.prompts[0]) == 0: # Remove ignore class so we don't prompt
+        self.prompts.pop(0)
+      self._cat_index_to_name = {0: ''}
+      self._cat_index_to_name.update({i+1: v for i,v in enumerate(self.prompts)})
+      self._cat_name_to_index = {
+        v: k for k, v in self._cat_index_to_name.items()
+      }
+      if self.text_query_mode == "labels":
+        self.text_embeds = self.encode_labels(self.prompts, onehot=False)
+      elif self.text_query_mode == "prompts":
+        self.text_embeds = self.encode_prompts(self.prompts, onehot=False)
+      else:
+        raise ValueError("Invalid query type")
+      
 
     self.slide_stride = slide_stride
     self.slide_crop = slide_crop
@@ -217,31 +237,29 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       del self.sam.image_encoder.patch_embed
       torch.cuda.empty_cache()
 
-  def _init_semseg_prompts(self, prompts):
-    self.prompts = prompts
-    self._cat_id_to_name = None
-    if self.prompts is not None and len(self.prompts) > 0:
-      self.prompts = list(self.prompts)
-      if len(self.prompts[0]) == 0: # Remove ignore class so we don't prompt
-        self.prompts.pop(0)
-      self._cat_index_to_name = {0: ''}
-      self._cat_index_to_name.update({i+1: v for i,v in enumerate(self.prompts)})
-      self._cat_name_to_index = {
-        v: k for k, v in self._cat_index_to_name.items()
-      }
-      if self.text_query_mode == "labels":
-        self.text_embeds = self.encode_labels(self.prompts)
-      elif self.text_query_mode == "prompts":
-        self.text_embeds = self.encode_prompts(self.prompts)
-      else:
-        raise ValueError("Invalid query type")
+  @property
+  @override
+  def num_classes(self) -> int:
+    return len(self.prompts) + 1
+
+  @property
+  @override
+  def cat_index_to_name(self):
+    return self._cat_index_to_name
+
+  @property
+  @override
+  def cat_name_to_index(self):
+    return self._cat_name_to_index
 
   @override
-  def encode_labels(self, labels: List[str]) -> torch.FloatTensor:
+  def encode_labels(self, labels: List[str], onehot: bool = True) -> torch.FloatTensor:
+    if self.predict and onehot:
+      return super().encode_labels(labels)
     prompts_per_label = self.insert_labels_into_templates(labels)
     all_text_features = list()
     for i in range(len(labels)):
-      text_features = self.encode_prompts(prompts_per_label[i])
+      text_features = self.encode_prompts(prompts_per_label[i], onehot=False)
       text_features = text_features.mean(dim=0, keepdim=True)
       all_text_features.append(text_features)
 
@@ -249,7 +267,9 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     return all_text_features
 
   @override
-  def encode_prompts(self, prompts: List[str]) -> torch.FloatTensor:
+  def encode_prompts(self, prompts: List[str], onehot: bool = True) -> torch.FloatTensor:
+    if self.predict and onehot:
+      return super().encode_labels(prompts)
     with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
       text = self.lang_adaptor.tokenizer(prompts).to(self.device)
       text_features = self.lang_adaptor.encode_text(text)
@@ -257,24 +277,9 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     return text_features
 
   @override
-  def encode_image_to_vector(
-    self, rgb_image: torch.FloatTensor) -> torch.FloatTensor:
-
-    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-      out = self.model(rgb_image)
-      C = out.summary.shape[-1] // 3
-      i = self.lang_adaptor.head_idx
-      out = out.summary[:, C*i: C*(i+1)]
-
-      if not self.return_radio_features:
-        out = self.lang_adaptor.head_mlp(out)
-
-    return out
-
-  @override
   def encode_image_to_feat_map(
     self, rgb_image: torch.FloatTensor, orig_img_size: Tuple[int] = None,
-    return_preds: bool = False, zero_is_ignore_label: bool = True) -> torch.FloatTensor:
+    return_preds: bool = False, ignore_label: bool = True) -> torch.FloatTensor:
     if orig_img_size is None:
       orig_img_size = rgb_image.shape[-2:]
     
@@ -300,18 +305,10 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     max_sim_per_class = torch.max(seg_probs, dim=0).values
 
     low_conf_classes = torch.argwhere(max_sim_per_class < self.prompt_denoising_thresh)
-    seg_probs[:, low_conf_classes] = -torch.inf
+    seg_probs[:, low_conf_classes] = 0
 
-    # Set low confidence predictions to the ignore label
     seg_probs = seg_probs.reshape(B, H, W, C).permute(0, 3, 1, 2) # BxCxHxW
     max_sim_per_pixel, seg_pred = torch.max(seg_probs, dim=1, keepdim=True) # Bx1xHxW
-
-    if zero_is_ignore_label:
-      # 0 is the ignore id / no pred
-      seg_pred += 1
-      seg_pred[max_sim_per_pixel < self.prediction_thresh] = 0
-    else:
-      seg_pred[max_sim_per_pixel < self.prediction_thresh] = 255
 
     if self.sam_refinement:
       seg_pred = list()
@@ -319,7 +316,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       for b in range(B):
         sam_image, new_h, new_w = self._preprocess_sam(rgb_image[b], target_size=1024)
         image_features = self._single_inference(sam_image)
-        sam_features = self.get_sam_spatial_features(image_features).float()
+        sam_features = self._get_sam_spatial_features(image_features).float()
         sam_features = self._interpolate_to_sam_dims(sam_features)
         sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)
         self.sam_predictor.features = sam_features
@@ -337,31 +334,23 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       seg_pred = torch.stack(seg_pred, dim=0)
       seg_probs = torch.stack(seg_probs, dim=0)
 
+    # Set low confidence predictions to the ignore label
+    if ignore_label:
+      seg_pred += 1
+      seg_pred[max_sim_per_pixel < self.prediction_thresh] = 0
+      seg_probs = torch.cat(
+        [torch.zeros_like(seg_probs[:, :1, :, :]), seg_probs], dim=1)
     if return_preds:
       return seg_probs, seg_pred
     else:
       return seg_probs
 
   @override
-  def encode_image_to_feat_map_and_vector(self, rgb_image: torch.FloatTensor) \
-      -> Tuple[torch.FloatTensor, torch.FloatTensor]:
-    raise NotImplementedError()
-
-  @override
-  def align_global_features_with_language(self, features: torch.FloatTensor):
+  def align_spatial_features_with_language(self, features: torch.FloatTensor,
+                                           onehot: bool = True):
     if self.lang_adaptor is None:
       raise ValueError("Cannot align to language without a lang model")
-    if not self.return_radio_features:
-      return features
-    B,C = features.shape
-    with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
-      return self.lang_adaptor.head_mlp(features)
-
-  @override
-  def align_spatial_features_with_language(self, features: torch.FloatTensor):
-    if self.lang_adaptor is None:
-      raise ValueError("Cannot align to language without a lang model")
-    if not self.return_radio_features:
+    if not self.return_radio_features or (self.predict and onehot):
       return features
     B,C,H,W = features.shape
     features = features.permute(0, 2, 3, 1).reshape(B, -1, C)
@@ -369,7 +358,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
       out = self.lang_adaptor.head_mlp(features)
     return out.permute(0, 2, 1).reshape(B, -1, H, W)
 
-  def get_sam_spatial_features(self, features: torch.FloatTensor):
+  def _get_sam_spatial_features(self, features: torch.FloatTensor):
     if self.sam_adaptor is None:
       raise ValueError("Cannot align to sam without a sam model")
   
@@ -443,7 +432,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
   def _get_seg_logits(self, feat_map):
 
-    image_features = self.align_spatial_features_with_language(feat_map)
+    image_features = self.align_spatial_features_with_language(feat_map, onehot=False)
     feat_map = image_features.permute(0, 2, 3, 1)
 
     B,H,W,C = feat_map.shape

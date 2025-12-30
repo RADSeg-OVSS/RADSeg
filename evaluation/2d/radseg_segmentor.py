@@ -55,8 +55,9 @@ class RADSegSegmentation(BaseSegmentor):
         img_size = batch_img_metas[0]['ori_shape']
 
         seg_probs, seg_preds = self.model.encode_image_to_feat_map(
-            inputs, img_size, return_preds=True, zero_is_ignore_label=False)
+            inputs, img_size, return_preds=True, ignore_label=False)
 
+        
         data_samples[0].set_data({
                 'seg_logits': PixelData(**{'data': seg_probs[0]}),
                 'pred_sem_seg': PixelData(**{'data': seg_preds[0]})
