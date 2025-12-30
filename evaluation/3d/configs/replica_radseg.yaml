@@ -40,6 +40,7 @@ encoder:
   sam_refinement: false
   predict: false
   sam_ckpt: sam_vit_h_4b8939.pth
+  classes:
 
 mapping:
   vox_size: 0.05 #5cm voxels

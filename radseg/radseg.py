@@ -274,7 +274,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
   @override
   def encode_image_to_feat_map(
     self, rgb_image: torch.FloatTensor, orig_img_size: Tuple[int] = None,
-    return_preds: bool = True) -> torch.FloatTensor:
+    return_preds: bool = False, zero_is_ignore_label: bool = True) -> torch.FloatTensor:
     if orig_img_size is None:
       orig_img_size = rgb_image.shape[-2:]
     
@@ -287,43 +287,55 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
     if not self.predict:
       return feat_map
 
-    seg_logits = self._get_seg_logits(feat_map)
-    seg_logits = nn.functional.interpolate(seg_logits, size=orig_img_size, mode='bilinear', align_corners=False)
+    # Predict
+    seg_probs = self._get_seg_logits(feat_map)
+    seg_probs = nn.functional.interpolate(
+      seg_probs, size=orig_img_size, mode='bilinear', align_corners=False)
 
-    seg_probs = seg_logits[0]
-    N,H,W = seg_probs.shape
-    num_cls = N
+    B, C, H, W = seg_probs.shape
+    num_cls = C
 
-    seg_probs = seg_probs.permute(1,2,0)
-    seg_probs = seg_probs.reshape(-1,N)
-    max_sim = torch.max(seg_probs, dim=0).values
+    # Prompt denoising
+    seg_probs = seg_probs.permute(0, 2, 3, 1).reshape(-1, C)
+    max_sim_per_class = torch.max(seg_probs, dim=0).values
 
-    low_conf_classes = torch.argwhere(max_sim < self.prompt_denoising_thresh)
+    low_conf_classes = torch.argwhere(max_sim_per_class < self.prompt_denoising_thresh)
     seg_probs[:, low_conf_classes] = -torch.inf
 
-    seg_probs = seg_probs.permute(1,0).reshape(-1,H,W)
-    seg_pred = seg_probs.argmax(0, keepdim=True)
-    seg_pred[seg_probs.max(0, keepdim=True)[0] < self.prediction_thresh] = 0
+    # Set low confidence predictions to the ignore label
+    seg_probs = seg_probs.reshape(B, H, W, C).permute(0, 3, 1, 2) # BxCxHxW
+    max_sim_per_pixel, seg_pred = torch.max(seg_probs, dim=1, keepdim=True) # Bx1xHxW
+
+    if zero_is_ignore_label:
+      # 0 is the ignore id / no pred
+      seg_pred += 1
+      seg_pred[max_sim_per_pixel < self.prediction_thresh] = 0
+    else:
+      seg_pred[max_sim_per_pixel < self.prediction_thresh] = 255
 
     if self.sam_refinement:
-      assert rgb_image.shape[0] == 1
-      sam_image, new_h, new_w = self._preprocess_sam(rgb_image[0], target_size=1024)
-      image_features = self._single_inference(sam_image)
-      sam_features = self.get_sam_spatial_features(image_features).float()
-      sam_features = self._interpolate_to_sam_dims(sam_features)
-      sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)
-      self.sam_predictor.features = sam_features
-      self.sam_predictor.is_image_set = True
-      self.sam_predictor.original_size = orig_img_size
-      self.sam_predictor.input_size = (new_h, new_w)
+      seg_pred = list()
+      seg_probs = list()
+      for b in range(B):
+        sam_image, new_h, new_w = self._preprocess_sam(rgb_image[b], target_size=1024)
+        image_features = self._single_inference(sam_image)
+        sam_features = self.get_sam_spatial_features(image_features).float()
+        sam_features = self._interpolate_to_sam_dims(sam_features)
+        sam_features = self.sam_predictor.model.image_encoder.neck(sam_features)
+        self.sam_predictor.features = sam_features
+        self.sam_predictor.is_image_set = True
+        self.sam_predictor.original_size = orig_img_size
+        self.sam_predictor.input_size = (new_h, new_w)
+        
+        refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
+          orig_img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
+          self.coarse_thresh, self.minimal_area,
+          self.sam_mask_coff, self.sam_iou_thresh)
       
-      refined_masks, scores, refined_logits, prompt_boxes = sam_refinement(
-        orig_img_size, seg_pred, seg_probs, num_cls, self.sam_predictor,
-        self.coarse_thresh, self.minimal_area,
-        self.sam_mask_coff, self.sam_iou_thresh)
-      
-      seg_pred = refined_masks
-      seg_probs = refined_logits
+        seg_pred.append(refined_masks)
+        seg_probs.append(refined_logits)
+      seg_pred = torch.stack(seg_pred, dim=0)
+      seg_probs = torch.stack(seg_probs, dim=0)
 
     if return_preds:
       return seg_probs, seg_pred
@@ -429,7 +441,7 @@ class RADSegEncoder(LangSpatialGlobalImageEncoder):
 
     return attn_output
 
-  def _get_seg_logits(self,feat_map):
+  def _get_seg_logits(self, feat_map):
 
     image_features = self.align_spatial_features_with_language(feat_map)
     feat_map = image_features.permute(0, 2, 3, 1)
