@@ -11,7 +11,6 @@ dependencies:
   - pytorch-cuda=12.1
   - pip
   - pip:
-      - mmengine==0.10.1
       - timm==1.0.19
       - segment-anything
       - opencv-python-headless
@@ -31,3 +30,4 @@ dependencies:
       - yapf
       - typing_extensions
       - einops
+      - gradio

@@ -1,13 +1,28 @@
-# RADSeg: Unleashing Parameter and Compute Efficient Zero-Shot Open-Vocabulary Segmentation Using Agglomerative Models
+<h1 align="center">RADSeg: Unleashing Parameter and Compute Efficient Zero-Shot Open-Vocabulary Segmentation Using Agglomerative Models</h1>
 
-[![ArXiv](https://img.shields.io/badge/ArXiv-2511.19704-b31b1b.svg)](https://arxiv.org/abs/2511.19704)
+<p align="center">
+  <a href="https://oasisartisan.github.io/"><strong>Omar Alama</strong></a>*
+  ·
+  <a href="https://www.linkedin.com/in/darshil-jariwala"><strong>Darshil Jariwala</strong></a>*
+  ·
+  <a href="https://avigyanbh.github.io/"><strong>Avigyan Bhattacharya</strong></a>*
+  <br>
+  <a href="https://seungchan-kim.github.io/"><strong>Seungchan Kim</strong></a>
+  ·
+  <a href="https://theairlab.org/team/wenshan/"><strong>Wenshan Wang</strong></a>
+  ·
+  <a href="https://theairlab.org/team/sebastian/"><strong>Sebastian Scherer</strong></a>
+</p>
+
+  <h3 align="center"><a href="https://arxiv.org/abs/2511.19704">Paper</a> | <a href="https://radseg-ovss.github.io/">Project Page</a> | <a href="#">Demo</a></h3>
+  <div align="center"></div>
+
 
 This repository contains the official implementation of **RADSeg**, a framework leveraging the agglomerative vision foundation model **RADIO** to improve zero-shot Open-Vocabulary Semantic Segmentation (OVSS). RADSeg enhances performance through self-correlating recursive attention, global aggregation, and efficient mask refinement, achieving state-of-the-art results with significantly lower computational and memory costs compared to existing methods.
 
 ## Introduction
 
-![RADSeg Architecture](assets/RADSeg-Diagram.png)
-*Figure 1: Overview of the RADSeg architecture.*
+![RADSeg Architecture](assets/abstract_figure.svg)
 
 Existing SOTA OVSS approaches often rely on heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, parameter and compute efficient approach by adapting **RADIO** for zero-shot open vocabulary segmentation.
 
@@ -27,6 +42,7 @@ conda activate radseg
 Additional dependencies for 2D evaluation:
 1. Install OpenMMLab dependencies:
    ```bash
+   pip install mmengine==0.10.1
    pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4/index.html
    pip install mmsegmentation==1.2.2
    ```
@@ -44,12 +60,10 @@ Additional dependencies for 2D evaluation:
 Additional dependencies for 3D evaluation
 TODO !!!!!!!!!!!!!!!!!!!
 
-4. **2D Dataset Preparation:**
-   Please follow the [MMSegmentation data preparation](https://github.com/open-mmlab/mmsegmentation/blob/main/docs/en/user_guides/2_dataset_prepare.md) to download and process the 5 2D datasets.
+## Usage
+Hugging face or torch hub hello world example. Load then do inference and display results.
 
-5. **3D Dataset Preparation:**
-
-## Running the Demo
+## Demo
 TODO: Hugging face demo
 
 ## 2D Evaluation
