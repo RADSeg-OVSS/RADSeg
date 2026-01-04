@@ -60,11 +60,20 @@ Additional dependencies for 2D evaluation:
 Additional dependencies for 3D evaluation
 TODO !!!!!!!!!!!!!!!!!!!
 
-## Usage
-Hugging face or torch hub hello world example. Load then do inference and display results.
-
 ## Demo
-TODO: Hugging face demo
+To test RADSeg on your own images using an interactive Gradio interface, follow these steps:
+
+1. **Load Environment**:
+   ```bash
+   module load anaconda3/2024.10-1
+   conda activate radseg
+   ```
+
+2. **Run the App**:
+   ```bash
+   python radseg_demo.py
+   ```
+This will launch a Gradio interface where you can upload images, add custom text prompts, and adjust model parameters like SCRA/SCGA scaling.
 
 ## 2D Evaluation
 
