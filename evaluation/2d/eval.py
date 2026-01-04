@@ -11,13 +11,13 @@ import radseg_segmentor
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluation with MMSeg')
-    parser.add_argument('--config',type=str, default='configs_2d/mid_res_configs/cfg_voc20.py')
+    parser.add_argument('--config',type=str, default='configs/mid_res_configs/cfg_voc20.py')
     parser.add_argument('--work-dir',type=str, default='./work_logs/')
     parser.add_argument('--model_version',type=str, default='c-radio_v3-b', help='radio model version')
     parser.add_argument('--lang_model',type=str, default='siglip2', help='language model')
     parser.add_argument('--scra_scaling',type=float, default=10.0, help='SCRA scale')
     parser.add_argument('--scga_scaling',type=float, default=10.0, help='SCGA scale')
-    parser.add_argument('--sam_refine', type=bool, default=False, help='RADIO-SAM refinement')
+    parser.add_argument('--sam_refine', action='store_true', help='RADIO-SAM refinement')
 
     args = parser.parse_args()
     return args

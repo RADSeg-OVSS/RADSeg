@@ -82,7 +82,7 @@ python eval.py \
   --scra_scaling 10.0 \
   --scga_scaling 10.0 \
   --work-dir ./work_logs/ \
-  --sam_refine False
+  --sam_refine
 ```
 
 Arguments:
@@ -91,13 +91,13 @@ Arguments:
 - `--lang_model`: Language model to use (e.g., `siglip2`).
 - `--scra_scaling`: Scaling factor for Self-Correlating Recursive Attention (SCRA).
 - `--scga_scaling`: Scaling factor for Self-Correlating Global Aggregation (SCGA).
-- `--sam_refine`: Enable RADIO-SAM mask refinement for RADSeg+ performance.
+- `--sam_refine`: Enable RADIO-SAM mask refinement for RADSeg+ performance (include flag to enable).
 
 
-To run evaluation across multiple resolutions and configs as defined in `eval_all_multi_res.py`:
+To run evaluation across multiple resolutions and configs as defined in `eval_all.py`:
 
 ```bash
-python eval_all_multi_res.py
+python eval_all.py
 ```
 This script iterates over defined configurations (Low Resolution, Mid Resolution and High Resolution) and runs the evaluation automatically.
 

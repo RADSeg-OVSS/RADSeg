@@ -22,8 +22,7 @@ test_dataloader = dict(
         data_root=None,
         data_prefix=dict(
             img_path='JPEGImages', seg_map_path='SegmentationClass'),
-        ann_file='ImageSets/Segmentation/val.txt'
-    )
+        )
 )
 default_scope = 'mmseg'
 env_cfg = dict(

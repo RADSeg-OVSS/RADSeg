@@ -14,7 +14,7 @@ resolutions = ["low_res", "mid_res", "high_res"]
 
 configs = {
     res: [
-        f"./configs_mmseg/{res}_configs/cfg_{ds}.py"
+        f"./configs/{res}_configs/cfg_{ds}.py"
         for ds in datasets
     ]
     for res in resolutions
@@ -25,8 +25,9 @@ lang_model = "siglip2"
 scra_scaling = 10.0
 scga_scaling = 10.0
 base_output_path = "results/radseg_segmentation"
-sam_refine = False
+sam_refine = True
 
+sam_refine_flag = "--sam_refine" if sam_refine else ""
 for res, configs_list in configs.items():
     output_path = os.path.join(base_output_path, res)
     for config in configs_list:
@@ -36,5 +37,5 @@ for res, configs_list in configs.items():
             f"--model_version {model} --lang_model {lang_model} "
             f"--work-dir {output_path} "
             f"--scra_scaling {scra_scaling} --scga_scaling {scga_scaling} "
-            f"--sam_refine {sam_refine}"
+            f"{sam_refine_flag}"
         )
