@@ -57,8 +57,9 @@ Additional dependencies for 2D evaluation:
    assert (mmcv_min_version <= mmcv_version <= mmcv_max_version)
    ```
 
-Additional dependencies for 3D evaluation
-TODO !!!!!!!!!!!!!!!!!!!
+Additional dependencies for 3D evaluation:
+Please follow the minimal setup instructions of [RayFronts Environment Setup](https://github.com/RayFronts/RayFronts?tab=readme-ov-file#environment-setup) to set up the conda/mamba environment for 3D evaluations. 
+
 
 ## Demo
 To test RADSeg on your own images using an interactive Gradio interface, follow these steps:
@@ -113,7 +114,8 @@ This script iterates over defined configurations (Low Resolution, Mid Resolution
 ## 3D Evaluation
 
 ### Dataset Preparation
-TODO
+Please follow the guidelines and dataset download links provided by [RayFronts Datasets](https://github.com/RayFronts/RayFronts/tree/main/rayfronts/datasets#datasets--data-sourcesstreams) to process and prepare the 3 datasets (Replica - NiceReplica version, ScanNet, ScanNet++) used for 3D evaluation.
+
 ### Running Evaluation 
 TODO
 
