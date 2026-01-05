@@ -1,4 +1,4 @@
-dependencies = ['torch', 'torchvision', 'numpy', 'timm', 'PIL', 'segment_anything']
+dependencies = ['torch', 'torchvision', 'numpy', 'timm', 'PIL', 'segment_anything', 'skimage','einops','transformers']
 
 def radseg_encoder(model_version="c-radio_v3-b", lang_model="siglip2", scra_scaling=10.0, scga_scaling=10.0, **kwargs):
     """
