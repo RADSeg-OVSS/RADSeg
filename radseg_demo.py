@@ -118,8 +118,8 @@ def get_encoder(model_version, lang_model, scra_scaling, scga_scaling):
     return _encoder_cache[cache_key]
 
 @torch.inference_mode()
-def process_all(input_image, scra_scaling, scga_scaling,
-                use_templates, softmax, resolution):
+def process_all(input_image, scra_scaling, scga_scaling, softmax, resolution):
+    use_templates = True
     model_version = "c-radio_v3-b"
     lang_model = "siglip2"
     N = len(prompt_list)
@@ -174,11 +174,11 @@ def process_all(input_image, scra_scaling, scga_scaling,
     vec2 = aligned_feats_flat / aligned_feats_flat.norm(dim=-1, keepdim=True)
     sim = (vec1 @ vec2.t()) # [N, H*W]
     
-    #import pdb; pdb.set_trace()
-    #sim = sim*8
     if softmax:
         sim = torch.softmax(100 * sim, dim=0)
-    
+    else:
+        sim /= torch.max(sim) # For visualization
+        
     sim = sim.reshape(N, H, W)
     
     # Resize heatmaps to original resolution for display
@@ -194,7 +194,7 @@ def main():
             """
             # RADSeg: Zero-Shot Open-Vocabulary Segmentation
             ### [Paper](https://arxiv.org/abs/2511.19704) | [Project Page](https://radseg-ovss.github.io/)
-            This demo allows you to test RADSeg's zero-shot segmentation capabilities on any image using text prompts.
+            Test RADSeg's zero-shot open-vocabulary segmentation capabilities on any image using text prompts !
             """
         )
         
@@ -207,7 +207,6 @@ def main():
                     scga_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCGA Scaling")
                 
                 with gr.Row():
-                    use_templates = gr.Checkbox(label="Use templates", value=True)
                     softmax = gr.Checkbox(label="Use softmax", value=True)
                     res_slider = gr.Slider(224, 1024, 512, step=32, label="Resolution (Max Side)")
 
@@ -232,13 +231,21 @@ def main():
         prompt.submit(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         add_button.click(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         clear_button.click(clear_prompts, outputs=[prompt, prompt_display])
+        examples = gr.Examples(
+        examples=[
+            ["assets/example1.jpg", 10, 10, True, "Pothole\nRoad\nSky\nCar\nWater", 224],
+            ["assets/example2.jpg", 10, 10, True, "Person\nShoes\nGrey Jacket\nRed overalls\nRoad\nCrosswalk\nCar", 512],
+            ["assets/example3.jpg", 10, 10, True, "Paved ground\nFlood lights\nRed Container\nBuilding\nTanker\nSky\nClouds\nTreeline", 768]
+        ],
+        inputs=[input_image, scra_scaling, scga_scaling, softmax, prompt, res_slider],
+        )
         
         run_button.click(
             fn=process_all,
             inputs=[
                 input_image,
                 scra_scaling, scga_scaling,
-                use_templates, softmax, res_slider
+                softmax, res_slider
             ],
             outputs=output_html
         )
