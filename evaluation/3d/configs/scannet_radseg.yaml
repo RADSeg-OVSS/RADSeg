@@ -41,10 +41,11 @@ encoder:
   sam_refinement: false
   predict: false
   sam_ckpt: sam_vit_h_4b8939.pth # Path to the SAM checkpoint
+  classes:
 
 mapping:
   vox_size: 0.05 # 5cm voxels
-  vox_accum_period: 4
+  vox_accum_period: 1
   max_pts_per_frame: -1
 
 querying:
