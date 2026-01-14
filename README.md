@@ -66,7 +66,6 @@ To test RADSeg on your own images using an interactive Gradio interface, follow 
 
 1. **Load Environment**:
    ```bash
-   module load anaconda3/2024.10-1
    conda activate radseg
    ```
 
