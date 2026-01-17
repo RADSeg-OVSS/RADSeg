@@ -93,8 +93,8 @@ def on_page_load():
 # Load model lazily
 _encoder_cache = {}
 
-def get_encoder(model_version, lang_model, scra_scaling, scga_scaling):
-    cache_key = (model_version, lang_model, scra_scaling, scga_scaling)
+def get_encoder(model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride):
+    cache_key = (model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride)
     if cache_key not in _encoder_cache:
         logger.info(f"Loading encoder: {model_version} with {lang_model}")
         try:
@@ -107,6 +107,8 @@ def get_encoder(model_version, lang_model, scra_scaling, scga_scaling):
                 lang_model=lang_model,
                 scra_scaling=scra_scaling,
                 scga_scaling=scga_scaling,
+                slide_crop=slide_crop,
+                slide_stride=slide_stride,
                 sam_refinement=False,
                 predict=False, 
                 device=device
@@ -118,7 +120,7 @@ def get_encoder(model_version, lang_model, scra_scaling, scga_scaling):
     return _encoder_cache[cache_key]
 
 @torch.inference_mode()
-def process_all(input_image, scra_scaling, scga_scaling, softmax, resolution):
+def process_all(input_image, scra_scaling, scga_scaling, use_sliding_window, window_size, window_stride, softmax, resolution):
     use_templates = True
     model_version = "c-radio_v3-b"
     lang_model = "siglip2"
@@ -127,7 +129,9 @@ def process_all(input_image, scra_scaling, scga_scaling, softmax, resolution):
         raise gr.Error("You must add some prompts", duration=5)
     
     yield "Initializing encoder..."
-    encoder = get_encoder(model_version, lang_model, scra_scaling, scga_scaling)
+    slide_crop = window_size if use_sliding_window else 0
+    slide_stride = window_stride if use_sliding_window else 224
+    encoder = get_encoder(model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride)
 
     yield "Processing image..."
     # Convert numpy to torch
@@ -202,27 +206,39 @@ def main():
             with gr.Column(scale=1):
                 input_image = gr.Image(label="Input Image", type="numpy")
                 
-                with gr.Accordion("Model Settings", open=False):
-                    scra_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCRA Scaling")
-                    scga_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCGA Scaling")
-                
-                with gr.Row():
-                    softmax = gr.Checkbox(label="Use softmax", value=True)
-                    res_slider = gr.Slider(224, 1024, 512, step=32, label="Resolution (Max Side)")
+                with gr.Accordion("Model & Inference Settings", open=True):
+                    with gr.Group():
+                        gr.Markdown("### 1. Model Scaling")
+                        scra_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCRA Scaling", info="Self-Correlating Recursive Attention")
+                        scga_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCGA Scaling", info="Self-Correlating Global Aggregation")
+                    
+                    with gr.Group():
+                        gr.Markdown("### 2. Sliding Window")
+                        use_sliding_window = gr.Checkbox(label="Enable Sliding Window", value=False)
+                        with gr.Row():
+                            window_size = gr.Slider(224, 1024, 336, step=16, label="Window Size")
+                            window_stride = gr.Slider(112, 512, 224, step=16, label="Window Stride")
+                    
+                    with gr.Row():
+                        softmax = gr.Checkbox(label="Use softmax", value=True)
+                        res_slider = gr.Slider(224, 1024, 512, step=32, label="Resolution (Max Side)")
 
-                with gr.Row():
-                    prompt = gr.Textbox(
-                        label="Prompt", 
-                        placeholder="Type a classes (e.g. 'car') and press enter or click '+'",
-                        scale=4
-                    )
-                    add_button = gr.Button("+", scale=1)
+                with gr.Group():
+                    gr.Markdown("### 3. Text Prompts")
+                    with gr.Row():
+                        prompt = gr.Textbox(
+                            label="Prompt", 
+                            placeholder="Type a class (e.g. 'car') and press enter",
+                            scale=4,
+                            show_label=False
+                        )
+                        add_button = gr.Button("+", scale=1)
 
-                prompt_display = gr.HTML()
-                
-                with gr.Row():
-                    clear_button = gr.Button("Clear Prompts")
-                    run_button = gr.Button("Run Segmentation", variant="primary")
+                    prompt_display = gr.HTML()
+                    
+                    with gr.Row():
+                        clear_button = gr.Button("Clear Prompts")
+                        run_button = gr.Button("Run Segmentation", variant="primary")
 
             with gr.Column(scale=2):
                 output_html = gr.HTML(label="Segmentation Heatmaps")
@@ -231,13 +247,14 @@ def main():
         prompt.submit(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         add_button.click(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         clear_button.click(clear_prompts, outputs=[prompt, prompt_display])
-        examples = gr.Examples(
-        examples=[
-            ["assets/example1.jpg", 10, 10, True, "Pothole\nRoad\nSky\nCar\nWater", 224],
-            ["assets/example2.jpg", 10, 10, True, "Person\nShoes\nGrey Jacket\nRed overalls\nRoad\nCrosswalk\nCar", 512],
-            ["assets/example3.jpg", 10, 10, True, "Paved ground\nFlood lights\nRed Container\nBuilding\nTanker\nSky\nClouds\nTreeline", 768]
-        ],
-        inputs=[input_image, scra_scaling, scga_scaling, softmax, prompt, res_slider],
+        
+        gr.Examples(
+            examples=[
+                ["assets/example1.jpg", 10, 10, False, 336, 224, True, "Pothole\nRoad\nSky\nCar\nWater", 512],
+                ["assets/example2.jpg", 10, 10, False, 336, 224, True, "Person\nShoes\nGrey Jacket\nRed overalls\nRoad\nCrosswalk\nCar", 512],
+                ["assets/example3.jpg", 10, 10, False, 336, 224, True, "Paved ground\nFlood lights\nRed Container\nBuilding\nTanker\nSky\nClouds\nTreeline", 768]
+            ],
+            inputs=[input_image, scra_scaling, scga_scaling, use_sliding_window, window_size, window_stride, softmax, prompt, res_slider],
         )
         
         run_button.click(
@@ -245,6 +262,7 @@ def main():
             inputs=[
                 input_image,
                 scra_scaling, scga_scaling,
+                use_sliding_window, window_size, window_stride,
                 softmax, res_slider
             ],
             outputs=output_html
@@ -256,3 +274,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

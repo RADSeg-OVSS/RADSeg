@@ -61,10 +61,41 @@ Additional dependencies for 3D evaluation:
 Please follow the minimal setup instructions of [RayFronts Environment Setup](https://github.com/RayFronts/RayFronts?tab=readme-ov-file#environment-setup) to set up the conda/mamba environment for 3D evaluations. 
 
 
-## Demo
-To test RADSeg on your own images using an interactive Gradio interface, follow these steps:
+## Quickstart
 
-1. **Load Environment**:
+### Torch Hub
+You can easily load RADSeg using Torch Hub for integration into your own projects:
+
+```python
+import torch
+from PIL import Image
+import torchvision.transforms as T
+
+# Load RADSeg model
+model = torch.hub.load('RADSeg-OVSS/RADSeg', 'radseg_encoder', 
+                       model_version="c-radio_v3-b", 
+                       lang_model="siglip2")
+model.to('cuda').eval()
+
+# Prepare image
+img = Image.open('your_image.jpg').convert('RGB')
+img_tensor = T.ToTensor()(img).unsqueeze(0).to('cuda')
+
+# Define labels for zero-shot segmentation
+labels = ["sky", "grass", "cat", "tree"]
+
+# High-level API for segmentation
+model.predict = True
+model.prompts = labels
+model.text_embeds = model.encode_labels(labels)
+with torch.no_grad():
+    seg_probs = model.encode_image_to_feat_map(img_tensor) # [1, len(labels)+1, H, W]
+```
+
+### Gradio Demo
+To test RADSeg on your own images using an interactive Gradio interface:
+
+1. **Activate Environment**:
    ```bash
    conda activate radseg
    ```
@@ -73,7 +104,8 @@ To test RADSeg on your own images using an interactive Gradio interface, follow 
    ```bash
    python radseg_demo.py
    ```
-This will launch a Gradio interface where you can upload images, add custom text prompts, and adjust model parameters like SCRA/SCGA scaling.
+This will launch an interface where you can upload images, add custom text prompts, and adjust model parameters
+
 
 ## 2D Evaluation
 
