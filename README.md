@@ -14,22 +14,19 @@
   <a href="https://theairlab.org/team/sebastian/"><strong>Sebastian Scherer</strong></a>
 </p>
 
-  <h3 align="center"><a href="https://arxiv.org/abs/2511.19704">Paper</a> | <a href="https://radseg-ovss.github.io/">Project Page</a> | <a href="#">Demo</a></h3>
+  <h3 align="center"><a href="https://arxiv.org/abs/2511.19704">Paper</a> | <a href="https://radseg-ovss.github.io/">Project Page</a> | <a href="https://huggingface.co/spaces/theairlabcmu/RADSeg">Demo</a></h3>
   <div align="center"></div>
 
+![RADSeg overview](assets/abstract_figure.jpg)
 
-This repository contains the official implementation of **RADSeg**, a framework leveraging the agglomerative vision foundation model **RADIO** to improve zero-shot Open-Vocabulary Semantic Segmentation (OVSS). RADSeg enhances performance through self-correlating recursive attention, global aggregation, and efficient mask refinement, achieving state-of-the-art results with significantly lower computational and memory costs compared to existing methods.
-
-## Introduction
-
-![RADSeg Architecture](assets/abstract_figure.svg)
-
-Existing SOTA OVSS approaches often rely on heavy combinations of multiple models (e.g., CLIP + DINO + SAM). **RADSeg** introduces a unified, parameter and compute efficient approach by adapting **RADIO** for zero-shot open vocabulary segmentation.
+**RADSeg** is a framework leveraging a single agglomerative vision foundation model **RADIO** to improve zero-shot Open-Vocabulary Semantic Segmentation (OVSS) in 2D and 3D ! Remarkably, RADSeg-base (105M) outperforms previous combinations of huge vision models (850-1350M) in mIoU, achieving state-of-the-art accuracy with substantially lower computational and memory cost.
 
 **Key Features:**
-- **Unified Backbone**: Uses RADIO as a single powerful vision backbone for zero-shot open vocabulary semantic segmentation.
-- **Efficiency**: 3.9x faster inference and 2.5x fewer parameters than comparable state-of-the-art methods.
+- **Unified Backbone**: No more cascades of multiple heavy foundation model. RADSeg Unlocks efficient OVSS with RADIO.
+- **Efficiency**: 3.95x faster inference and 2.5x fewer parameters than comparable state-of-the-art methods.
 - **Performance**: Significant mIoU improvements (6-30% on base ViT class) across benchmarks.
+
+[Try our demo !](https://huggingface.co/spaces/theairlabcmu/RADSeg)
 
 ## Environment Setup
 
@@ -93,7 +90,7 @@ with torch.no_grad():
 ```
 
 ### Gradio Demo
-To test RADSeg on your own images using an interactive Gradio interface:
+To test RADSeg on your own images using an interactive Gradio interface (Available online [here](https://huggingface.co/spaces/theairlabcmu/RADSeg)):
 
 1. **Activate Environment**:
    ```bash
@@ -105,7 +102,6 @@ To test RADSeg on your own images using an interactive Gradio interface:
    python radseg_demo.py
    ```
 This will launch an interface where you can upload images, add custom text prompts, and adjust model parameters
-
 
 ## 2D Evaluation
 
@@ -148,12 +144,13 @@ This script iterates over defined configurations (Low Resolution, Mid Resolution
 Please follow the guidelines and dataset download links provided by [RayFronts Datasets](https://github.com/RayFronts/RayFronts/tree/main/rayfronts/datasets#datasets--data-sourcesstreams) to process and prepare the 3 datasets (Replica - NiceReplica version, ScanNet, ScanNet++) used for 3D evaluation.
 
 ### Running Evaluation 
-TODO
 
-Switch to evaluation/3d directory
+Switch to evaluation/3d directory. Make sure the RayFronts submodule is cloned (Add `--recursive` when cloning RADSeg).
+Then run the following command:
 ```bash
 PYTHONPATH="../../:$PYTHONPATH" python RayFronts/scripts/semseg_eval.py --config-dir ./configs/ --config-name replica_radseg.yaml dataset.path="XXX"
 ```
+Change config name based on which dataset you want and replace dataset.path with the correct path.
 
 ## Citation
 
