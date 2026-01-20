@@ -201,24 +201,24 @@ def main():
             Test RADSeg's zero-shot open-vocabulary segmentation capabilities on any image using text prompts !
             """
         )
-        
+
         with gr.Row():
             with gr.Column(scale=1):
                 input_image = gr.Image(label="Input Image", type="numpy")
-                
-                with gr.Accordion("Model & Inference Settings", open=True):
+
+                with gr.Accordion("Model & Inference Settings", open=False):
                     with gr.Group():
                         gr.Markdown("### 1. Model Scaling")
                         scra_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCRA Scaling", info="Self-Correlating Recursive Attention")
                         scga_scaling = gr.Slider(1.0, 20.0, 10.0, step=1.0, label="SCGA Scaling", info="Self-Correlating Global Aggregation")
-                    
+
                     with gr.Group():
                         gr.Markdown("### 2. Sliding Window")
-                        use_sliding_window = gr.Checkbox(label="Enable Sliding Window", value=False)
+                        use_sliding_window = gr.Checkbox(label="Enable Sliding Window", value=True)
                         with gr.Row():
                             window_size = gr.Slider(224, 1024, 336, step=16, label="Window Size")
                             window_stride = gr.Slider(112, 512, 224, step=16, label="Window Stride")
-                    
+
                     with gr.Row():
                         softmax = gr.Checkbox(label="Use softmax", value=True)
                         res_slider = gr.Slider(224, 1024, 512, step=32, label="Resolution (Max Side)")
@@ -235,7 +235,7 @@ def main():
                         add_button = gr.Button("+", scale=1)
 
                     prompt_display = gr.HTML()
-                    
+
                     with gr.Row():
                         clear_button = gr.Button("Clear Prompts")
                         run_button = gr.Button("Run Segmentation", variant="primary")
@@ -247,16 +247,16 @@ def main():
         prompt.submit(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         add_button.click(add_prompt, inputs=prompt, outputs=[prompt, prompt_display])
         clear_button.click(clear_prompts, outputs=[prompt, prompt_display])
-        
+
         gr.Examples(
             examples=[
-                ["assets/example1.jpg", 10, 10, False, 336, 224, True, "Pothole\nRoad\nSky\nCar\nWater", 512],
-                ["assets/example2.jpg", 10, 10, False, 336, 224, True, "Person\nShoes\nGrey Jacket\nRed overalls\nRoad\nCrosswalk\nCar", 512],
-                ["assets/example3.jpg", 10, 10, False, 336, 224, True, "Paved ground\nFlood lights\nRed Container\nBuilding\nTanker\nSky\nClouds\nTreeline", 768]
+                ["assets/example1.jpg", 10, 10, True, 336, 224, True, "Pothole\nRoad\nSky\nCar\nWater", 768],
+                ["assets/example2.jpg", 10, 10, True, 336, 224, True, "Person\nShoes\nGrey Jacket\nRed overalls\nRoad\nCrosswalk\nCar", 768],
+                ["assets/example3.jpg", 10, 10, True, 336, 224, True, "Paved ground\nFlood lights\nRed Container\nBuilding\nTanker\nSky\nClouds\nTreeline", 1024]
             ],
             inputs=[input_image, scra_scaling, scga_scaling, use_sliding_window, window_size, window_stride, softmax, prompt, res_slider],
         )
-        
+
         run_button.click(
             fn=process_all,
             inputs=[
