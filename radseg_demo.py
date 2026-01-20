@@ -20,8 +20,6 @@ from radseg.radseg import RADSegEncoder
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 # Global state to keep track of prompts and colors (similar to inspiration app)
 prompt_list = []
 color_list = []
@@ -90,48 +88,54 @@ def on_page_load():
     color_list.clear()
     return gr.update(value="")
 
-# Load model lazily
-_encoder_cache = {}
+use_templates = True
+model_version = "c-radio_v3-b"
+lang_model = "siglip2"
 
-def get_encoder(model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride):
-    cache_key = (model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride)
-    if cache_key not in _encoder_cache:
+# Load model lazily
+encoder = None
+def get_encoder(scra_scaling, scga_scaling, slide_crop, slide_stride):
+    global encoder
+    if encoder is None:
         logger.info(f"Loading encoder: {model_version} with {lang_model}")
         try:
             # We don't pass classes yet as we will handle that in inference
             # or by manually encoding prompts.
             # To avoid the "Must pass list of classes when predict is True" error,
             # we'll use predict=False for the base encoder and manage predictions ourselves.
-            enc = RADSegEncoder(
-                model_version=model_version,
-                lang_model=lang_model,
-                scra_scaling=scra_scaling,
-                scga_scaling=scga_scaling,
-                slide_crop=slide_crop,
-                slide_stride=slide_stride,
-                sam_refinement=False,
-                predict=False, 
-                device=device
+            encoder = RADSegEncoder(
+                    model_version=model_version,
+                    lang_model=lang_model,
+                    scra_scaling=scra_scaling,
+                    scga_scaling=scga_scaling,
+                    slide_crop=slide_crop,
+                    slide_stride=slide_stride,
+                    sam_refinement=False,
+                    predict=False,
+                    device="cuda"
             )
-            _encoder_cache[cache_key] = enc
         except Exception as e:
             logger.error(f"Error loading encoder: {e}")
             raise gr.Error(f"Failed to load encoder: {e}")
-    return _encoder_cache[cache_key]
+    else:
+        encoder.slide_stride = slide_stride
+        encoder.slide_crop = slide_crop
+        encoder.scga_scaling = scga_scaling
+        encoder.model.model.blocks[-1].attn.scra_scaling = scra_scaling
 
+    return encoder
 @torch.inference_mode()
 def process_all(input_image, scra_scaling, scga_scaling, use_sliding_window, window_size, window_stride, softmax, resolution):
-    use_templates = True
-    model_version = "c-radio_v3-b"
-    lang_model = "siglip2"
+    global encoder
     N = len(prompt_list)
     if N == 0:
         raise gr.Error("You must add some prompts", duration=5)
     
     yield "Initializing encoder..."
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     slide_crop = window_size if use_sliding_window else 0
     slide_stride = window_stride if use_sliding_window else 224
-    encoder = get_encoder(model_version, lang_model, scra_scaling, scga_scaling, slide_crop, slide_stride)
+    encoder = get_encoder(scra_scaling, scga_scaling, slide_crop, slide_stride)
 
     yield "Processing image..."
     # Convert numpy to torch
