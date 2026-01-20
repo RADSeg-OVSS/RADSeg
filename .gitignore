@@ -1,0 +1,10 @@
+*.pyc
+__pycache__
+*.log
+*.o
+*build*
+/work_logs
+/results
+.vscode
+.DS_Store
+work_logs
