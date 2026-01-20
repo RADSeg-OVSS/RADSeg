@@ -55,8 +55,7 @@ Additional dependencies for 2D evaluation:
    ```
 
 Additional dependencies for 3D evaluation:
-Please follow the minimal setup instructions of [RayFronts Environment Setup](https://github.com/RayFronts/RayFronts?tab=readme-ov-file#environment-setup) to set up the conda/mamba environment for 3D evaluations. 
-
+Please follow the minimal setup instructions of [RayFronts Environment Setup](https://github.com/RayFronts/RayFronts?tab=readme-ov-file#environment-setup) to set up the conda/mamba environment for 3D evaluations.
 
 ## Quickstart
 
@@ -146,12 +145,35 @@ Please follow the guidelines and dataset download links provided by [RayFronts D
 
 ### Running Evaluation 
 
-Switch to evaluation/3d directory. Make sure the RayFronts submodule is cloned (Add `--recursive` when cloning RADSeg).
-Then run the following command:
+To evaluate RADSeg on a specific 3D dataset, switch to the `evaluation/3d` directory and run:
+
 ```bash
-PYTHONPATH="../../:$PYTHONPATH" python RayFronts/scripts/semseg_eval.py --config-dir ./configs/ --config-name replica_radseg.yaml dataset.path="XXX"
+cd evaluation/3d
+PYTHONPATH="../../:$PYTHONPATH" python RayFronts/scripts/semseg_eval.py \
+  --config-dir ./configs/ \
+  --config-name replica_radseg.yaml \
+  dataset.path="path/to/your/dataset"
 ```
-Change config name based on which dataset you want and replace dataset.path with the correct path.
+
+**Available Config Files:**
+- `replica_radseg.yaml` - For Replica dataset (NiceReplica version)
+- `scannet_radseg.yaml` - For ScanNet dataset
+- `scannetpp_radseg.yaml` - For ScanNet++ dataset
+
+**Running Multiple Scenes:**
+
+The config files support Hydra sweeper for running multiple scenes in parallel. To run all scenes defined in the config's `hydra.sweeper.params.dataset.scene_name` list, simply run the command with an added argument `--multirun`:
+
+```bash
+PYTHONPATH="../../:$PYTHONPATH" python RayFronts/scripts/semseg_eval.py \
+  --config-dir ./configs/ \
+  --config-name scannet_radseg.yaml \
+  dataset.path="path/to/scannet" --multirun
+```
+
+**Results:**
+
+Evaluation results will be saved in the directory specified by `eval_out` in your config file (default: `eval_out/radseg/`). The results include per-scene metrics and aggregated statistics.
 
 ## Citation
 
