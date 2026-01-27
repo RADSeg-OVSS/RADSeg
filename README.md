@@ -66,27 +66,31 @@ You can easily load RADSeg using Torch Hub for integration into your own project
 import torch
 from PIL import Image
 import torchvision.transforms as T
+import matplotlib.pyplot as plt
 
-# Load RADSeg model
-model = torch.hub.load('RADSeg-OVSS/RADSeg', 'radseg_encoder', 
-                       model_version="c-radio_v3-b", 
-                       lang_model="siglip2")
-model.to('cuda').eval()
+with torch.inference_mode():
+    # Define labels for zero-shot segmentation
+    labels = ["sky", "grass", "sheep", "mountain"]
+    
+    # Load RADSeg model
+    model = torch.hub.load(
+        'RADSeg-OVSS/RADSeg', 'radseg_encoder',  model_version="c-radio_v3-l",  lang_model="siglip2",
+         device="cuda",
+         predict=True, # Set to false to return 
+         sam_refinement=False, # Set to true for RADSeg+
+         classes=labels)
 
-# Prepare image
-img = Image.open('your_image.jpg').convert('RGB')
-img_tensor = T.ToTensor()(img).unsqueeze(0).to('cuda')
+    # Prepare image
+    img = Image.open('sheep2.jpg').convert('RGB')
+    img_tensor = T.ToTensor()(img).unsqueeze(0).to('cuda')
 
-# Define labels for zero-shot segmentation
-labels = ["sky", "grass", "cat", "tree"]
-
-# High-level API for segmentation
-model.predict = True # Change to False to get language aligned features and do querying yourself.
-model.sam_refinement = False 
-model.prompts = labels
-model.text_embeds = model.encode_labels(labels)
-with torch.no_grad():
     seg_probs = model.encode_image_to_feat_map(img_tensor) # [1, len(labels)+1, H, W]
+
+    for i in range(len(labels)):
+        plt.subplot(2, 2, i+1)
+        plt.imshow(seg_probs[0, i+1].cpu())
+        plt.title(labels[i])
+    plt.show()
 ```
 
 ### Gradio Demo
