@@ -186,11 +186,13 @@ Evaluation results will be saved in the directory specified by `eval_out` in you
 If you find this work useful, please cite our paper:
 
 ```bibtex
-@article{alama2025radseg,
-  title={RADSeg: Unleashing Parameter and Compute Efficient Zero-Shot Open-Vocabulary Segmentation Using Agglomerative Models},
-  author={Alama, Omar and Jariwala, Darshil and Bhattacharya, Avigyan and Kim, Seungchan and Wang, Wenshan and Scherer, Sebastian},
-  journal={arXiv preprint arXiv:2511.19704},
-  year={2025}
+@InProceedings{Alama_2026_CVPR,
+    author    = {Alama, Omar and Jariwala, Darshil and Bhattacharya, Avigyan and Kim, Seungchan and Wang, Wenshan and Scherer, Sebastian},
+    title     = {RADSeg: Unleashing Parameter and Compute Efficient Zero-Shot Open-Vocabulary Segmentation Using Agglomerative Models},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Findings},
+    month     = {June},
+    year      = {2026},
+    pages     = {9294-9304}
 }
 ```
 
