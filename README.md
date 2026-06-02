@@ -109,6 +109,22 @@ To test RADSeg on your own images using an interactive Gradio interface (Availab
    ```
 This will launch an interface where you can upload images, add custom text prompts, and adjust model parameters
 
+### Batch inference (CLI)
+To run RADSeg on a single image or a directory of images with custom class labels and save segmentation masks:
+
+```bash
+python scripts/run_inference.py \
+  --input path/to/image_or_folder \
+  --classes "car,person,road" \
+  --output-dir ./radseg_out
+```
+
+**Classes:** Use a comma-separated list or a text file path (one class per line or comma-separated).
+
+**Outputs:** Per-image segmentation mask PNG (`*_mask.png`), optionally overlay (`--save-overlay`) and probability maps (`--save-probs`).
+
+**Options:** `--mask-format index|color`, `--resolution 512`, `--no_sliding`, `--sam_refine` (RADSeg+). See `python scripts/run_inference.py --help` for all arguments.
+
 ## 2D Evaluation
 
 ### Dataset Preparation
